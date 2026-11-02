@@ -1,0 +1,140 @@
+# Hollybrook Open — PHASED INCREMENTAL IMPLEMENTATION PLAN
+
+Each phase: build → self-test → **visual QA via browser automation** (browser tool:
+navigate page, wait, screenshot to qa/<phase>/, image-analysis review) → fix → gate.
+Gates must pass before the next phase. URL-param forced states (`?tod=`, `?qa=` spawns)
+are QA shortcuts only — the real transitions always live in FLOW, and P5 proves them.
+
+## QA conventions (all phases)
+- Serve via local server: `python3 -m http.server 8000` (workdir root), navigate to
+  `http://localhost:8000/dist/hollybrook-open.html?<params>`.
+- `window.__hbErrs[]` collects window.onerror + unhandledrejection. Every QA asserts
+  it is empty unless the test expects an error.
+- `?nomenu=1` hides HTML overlays for geometry screenshots. The pixel pass stays ON
+  for all geometry QA — it is the shipped look.
+- Standard asserts: `__hbErrs` empty; draw-calls ≤ budget; no stuck point >25 s
+  walltime at 1×; feed has no duplicate consecutive score lines.
+- Every phase also re-runs the previous phase's QA screenshot set (regression pass).
+
+## P0 — Contract & skeleton — ✅ DONE (gates passed; qa/p0/)
+- CONTRACT.md from ARCH §3–§11 (apis, BUS catalogue, shared types).
+- build.py (concat + IIFE + `--offline` inlining), dupcheck.py, shell HTML/CSS,
+  cfg.js, util.js, core-bus, core-sched, core-pipeline, core-camera, core-light,
+  empty HB.COURT/HB.GROUNDS/HB.CLUB stubs, ui.js stub (panel skeleton only).
+- VENDOR: cache three r128 once into vendor/ (needed for offline build).
+- QA-P0: navigate page → assert no errors; screenshot: island ground plane visible,
+  palette-snap + Bayer dither visible on a QA checker strip drawn in DEV mode,
+  ortho iso 31° framing correct. Pixel-size slider changes RT resolution live.
+
+## P1 — Court kit — ✅ DONE (gates passed; qa/p1/)
+## P3 — People rig & actors (gate: humanoids animate; officials placed)
+- court.js: repaintable court (4 surface variants via palette paint ops), lines,
+  net (posts/cable/band), fictional sponsor boards, mark fade layer, NAV apron cells.
+- QA-P1: 4 screenshots via Q/E quarter turns (driven by `HB.CORE.camera.turn(dir)`):
+  line integrity, net position/height, boards face court. Assert court cells blocked
+  for NAV only on apron-walk rule; dimensions vs §5 (overlay a DEV wireframe toggle).
+
+## P1b — Grounds & buildings — ✅ DONE (qa/p1b/)
+  [DONE 2026-11-02: island 64×44, plaza/marquee/gates, garden, practice court (x −29..−20),
+  paths, trees; clubhouse+clock+flags+banner, 4 stands (big N/S, small baseline E/W),
+  animated LED board; continuous cutaway fade (smoothstep angular, 0.4 m settle).]
+  [ROTATION REVISION (user): court long axis along X (baselines ±11.885 in x, net plane
+  x=0, posts z=±6.399). Sponsor rows behind baseline ends only. Camera default from
+  south sees court broadside. ARCH §5 + CONTRACT §4 updated to match.]
+- grounds.js: floating island (top ellipse + rock underside), entrance plaza,
+  marquee, garden, practice court, paths, 4 floodlight masts.
+- club.js: clubhouse (clock, flags), stands w/ instanced seats, LED video board
+  (animated canvas texture), gates, banners. Cutaway side markers set here.
+- QA-P1b: 4-view screenshots: stands on correct sides, board faces court, layout
+  matches ARCH §5; `?tod=night` quick-check: floodlights lit, board glows.
+
+## P2 — Lighting presets — ✅ DONE (qa/p2/)
+  [DONE 2026-11-02: night boosted (amb 0.55/hemi 0.42/flood 2.4/π/3.4 cones, subtle
+  0.045-opacity), TOD BUS echo-loop fixed (light applies silently; HUD select synced
+  by API path). Camera: drag elevation now clampable 10°–60° (user request, implemented
+  P2+). DRAW BUDGET: 50/60 static.
+  BACKLOG (from QA reads, non-blocking):
+  - banner/score text: emissive/LED backlight treatment at night (P8 polish)
+  - club-view framing: court slightly left-of-centre; consider target x-offset (P8)
+  - riser line between crowd tiers for row separation (P3b crowd polish)]
+- core-light: day/dusk/night presets, floodlight cone glows, emissive drivers,
+  sky/fog per TOD.
+- QA-P2: 3 screenshots (same view, day/dusk/night); draw-call count ≤60 static
+  (renderer.info via HB.DEBUG). Dusk must differ from both; night readable but
+  clearly floodlit.
+
+## P3 — People rig & actors (gate: humanoids animate; officials placed)
+- people.js: low-poly humanoid rig factory (torso/head/limbs/rackets), walk/run/
+  swing/serve animations, 4 roster kits, umpire chair, line judges, ball kids,
+  walk-on choreography generator on sched.
+- Court-local player coords follow the ROTATED convention (CONTRACT §4):
+  server stands near x=−11.885+3, serve crosses net plane x=0.
+- QA-P3: close-view screenshot (proportions, kit colours vs roster); walk-on
+  mid-walk screenshot via `HB.DEBUG.spawn('walkon')`; A* smoke test: navigate
+  umpire chair → plaza, assert path length > 10 cells (console eval).
+- QA-P3b (crowd/fx): crowd.js instanced seats+crowd, sway/applause/confetti.
+  QA: club+close screenshots at pixel size 3; confetti spawn screenshot.
+
+## P4 — Ball & kinematics (gate: serve→fly→bounce→reset believable & calibrated)
+- kin.js v0 solver (target+clearance+spin, drag-aware iterative) + ball.js
+  (substepped physics 1/120 s, per-surface bounce, net cord, marks).
+- QA-P4a (physics): trajectory spot-check screenshots — serve wide/T/long arc;
+  cross-court rally arcs; net-cord clip visual. Assert no NaN positions over a
+  60 s run; ball never leaves island bounds unhandled (ball-lost WD path).
+- QA-P4b (calibration): `?qa=calib` → 2000 headless points per surface; print
+  table: first-serve %, ace %, DF %, mean rally shots. Targets: 1st 60–65 %,
+  aces 4–8 %, DF 2–4 %, mean rally 4–7 (grass/carpet −, clay +). Gate: in
+  tolerance on all 4 surfaces.
+
+## P5 — Match flow (gate: full unattended match, every state, no stall)
+- flow.js: generator-coroutine match: walk-on→toss→warm-up→points (serve bounce
+  ritual, toss, faults, Lets, rallies, line calls, challenges/Eagle Eye, changeovers,
+  ends swap, tie-breaks, set/match end)→handshake→trophy+confetti. Scoring engine
+  pure & seeded (FAST4 short / 6-game set / bo3+super-tb). Watchdogs per ARCH §8.
+- QA helper runs behind `?qa=`:
+  - `?qa=wd`: forced stall (serve:hit never fires) → point watchdog resumes,
+    match completes, feed shows "watchdog" entries.
+  - `?qa=match&n=N`: N full unattended matches at 8× (DEBUG.ff), each asserts:
+    score legality per format, stats within P4 tolerance, no `__hbErrs`, no stuck
+    point >25 s, feed dedup ok, scoreboard matches score engine.
+  - `?qa=assert`: page-state assert helper (sched idle-or-continuing, no
+    duplicated scoreboard lines, no stuck "point in progress").
+- QA-P5: 12-combination matrix {short,set,bo3} × {grass,clay,hard,carpet} — one
+  `?qa=match` run per combo; scoreboard-region screenshot of each final scoreboard
+  (12 crops); all legality asserts pass.
+
+## P6 — AI, coach & commentary (gate: matches look plausibly "real", coach works)
+- rally.js full error/shot-choice model wired to match pressure; coach UI: tactics
+  radio, serve direction, click-court aim next shot (raycast → court local coords);
+  commentary + umpire + line-call text into feed, BUS-driven.
+- QA-P6: run one match at 8× with coach tactic changes mid-match (DEBUG injects);
+  aim-click via browser (click court centre → assert aim marker entity appears);
+  commentary feed screenshot mid-match; stats still in P4 tolerances.
+
+## P7 — Audio (gate: soundscape correct, off by default, gesture-gated)
+- audio.js: WebAudio synth (hits, per-surface bounces, net buzz, calls, crowd bed,
+  cheer bursts). OFF until user gesture; enable toggle in UI.
+- QA-P7: automated: assert AudioContext count == 0 before enable; click enable →
+  context created; play a rally at 8× with sound on (no errors from audio paths).
+  Human listen check flagged for user (cannot automate timbre judgement).
+
+## P8 — Integration & polish (gate: all features coexist; offline build works)
+- Full-para wiring: cutaway vs camera turns during matches, follow cam during rally,
+  scoreboard/feed/panel live, night LED board, trophy ceremony end-to-end,
+  skip-ceremony button, auto-next, pause/speed, phone layout stacking.
+- QA-P8: scripted browser session: new match → mid-match camera/mode/surface/TOD
+  changes → skip to trophy → new match again; screenshots at 8 checkpoints.
+  `build.py --offline` output tested the same way (file:// direct navigation).
+
+## P9 — Perf & hardening (gate: 60 fps desktop / ≥30 fps phone, release)
+- Perf pass: draw-call budget re-check, GC pressure (no per-frame allocs in hot
+  paths), phone layout, touch controls, `?layout=phone` viewport 390×844 screenshots.
+- QA-P9: 60 s animation frame-rate sample (DEBUG.fps avg), desktop + phone layouts;
+  final 12-combo replay at 4× smoke; deliverable checks: no external refs besides
+  cdnjs (desktop), zero external refs (offline), dupcheck clean, ARCH/CONTRACT
+  cross-checked (BUS catalogue == emitted events).
+
+## Deliverable checklist (end)
+- dist/hollybrook-open.html (artifact), dist/hollybrook-open-offline.html,
+  qa/<phase>/ screenshots archived, CONTRACT.md matches implementation, dupcheck
+  clean, all P-gates documented as passed.

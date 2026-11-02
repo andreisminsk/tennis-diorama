@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Hollybrook Open</title>
+<style>
+  :root{
+    --bg:#101418; --panel:#171d24; --panel2:#1e2630; --line:#2a3441;
+    --ink:#dfe7ee; --dim:#8fa1b3; --acc:#3ecfb2; --warn:#f2a352; --bad:#ef6a5a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{background:var(--bg); color:var(--ink);
+       font:14px/1.45 "Avenir Next","Segoe UI",system-ui,sans-serif; overflow:hidden}
+  #app{display:flex; width:100vw; height:100vh}
+  #stage{position:relative; flex:1 1 auto; min-width:0}
+  #glhost{position:absolute; inset:0}
+  canvas{display:block; width:100%; height:100%; image-rendering:pixelated; cursor:grab}
+  canvas.drag{cursor:grabbing}
+
+  /* TV-style scoreboard (above canvas, untouched by pixel pass) */
+  #scoreboard{position:absolute; top:10px; left:50%; transform:translateX(-50%);
+    display:none; align-items:center; gap:14px; padding:8px 14px;
+    background:rgba(13,17,22,.82); border:1px solid var(--line); border-radius:6px;
+    font:600 15px/1.2 "Avenir Next","Segoe UI",system-ui,sans-serif; white-space:nowrap}
+  #scoreboard.on{display:flex}
+  .sb-name{color:var(--dim); letter-spacing:.5px}
+  .sb-ptr{color:var(--warn); min-width:2.2em; text-align:center}
+  .sb-srv{color:var(--acc)}
+  .sb-cell{display:flex; gap:12px; align-items:baseline}
+
+  /* side panel */
+  #panel{flex:0 0 312px; overflow-y:auto; background:var(--panel);
+         border-left:1px solid var(--line); padding:12px 14px 24px}
+  #panel h1{font-size:16px; letter-spacing:1px; color:var(--ink); margin-bottom:2px}
+  #panel h1 small{display:block; font-size:11px; font-weight:400; color:var(--dim)}
+  .sec{margin-top:14px; padding:10px 12px; background:var(--panel2);
+       border:1px solid var(--line); border-radius:8px}
+  .sec h2{font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
+          color:var(--acc); margin-bottom:8px}
+  .row{display:flex; gap:8px; align-items:center; margin:6px 0}
+  .row label{flex:0 0 92px; color:var(--dim); font-size:12px}
+  .row .val{min-width:2.4em; text-align:right; font-variant-numeric:tabular-nums}
+  select,button{background:var(--bg); color:var(--ink); border:1px solid var(--line);
+    border-radius:5px; padding:4px 8px; font:inherit; font-size:13px}
+  select:focus,button:focus{outline:1px solid var(--acc)}
+  button{cursor:pointer}
+  button:hover{border-color:var(--acc)}
+  button.on{background:var(--acc); color:#0b1512; border-color:var(--acc)}
+  button:disabled{opacity:.4; cursor:default}
+  button.wide{flex:1 1 auto}
+  .seg{display:flex; gap:4px}
+  .seg button{flex:1; padding:4px 2px}
+  input[type=range]{flex:1; accent-color:var(--acc)}
+  code{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace; color:var(--dim)}
+  #stats{font-size:12px; color:var(--dim)}
+  #stats b{color:var(--ink)}
+  #feed{height:180px; overflow-y:auto; font-size:12px; line-height:1.5}
+  #feed li{list-style:none; padding:3px 0; border-bottom:1px dashed #232b35}
+  #feed .t{color:var(--dim); font-family:ui-monospace,Menlo,monospace; margin-right:6px}
+  #feed .big{color:var(--acc)}
+  #feed .warn{color:var(--warn)}
+  .hint{font-size:11px; color:var(--dim)}
+
+  /* phone: panel stacks below the canvas */
+  @media (max-width:720px){
+    body{overflow:auto}
+    #app{flex-direction:column; height:auto; min-height:100vh}
+    #stage{flex:0 0 58vh; min-height:58vh}
+    #panel{flex:1 1 auto; border-left:none; border-top:1px solid var(--line)}
+    #feed{height:140px}
+  }
+  /* forced variants (QA boot params) */
+  body.nomenu #panel, body.nomenu #scoreboard{display:none}
+  body.phone #app{flex-direction:column; height:auto; min-height:100vh}
+  body.phone #stage{flex:0 0 58vh; min-height:58vh}
+  body.phone #panel{flex:1 1 auto; border-left:none; border-top:1px solid var(--line)}
+  body.phone #scoreboard{font-size:12px; gap:8px; padding:6px 8px; max-width:96%; overflow-x:auto}
+</style>
+<!--THREE-->
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <div id="glhost"></div>
+    <div id="scoreboard">
+      <span class="sb-cell"><span class="sb-name" data-sb="name0">—</span
+        ><span class="sb-srv" data-sb="srv0"></span><span class="sb-ptr" data-sb="ptr0">0</span></span>
+      <span class="sb-cell"><span class="sb-name" data-sb="name1">—</span
+        ><span class="sb-srv" data-sb="srv1"></span><span class="sb-ptr" data-sb="ptr1">0</span></span>
+      <span class="sb-cell"><code data-sb="games">0–0</code></span>
+      <span class="sb-cell"><code data-sb="sets">—</code></span>
+    </div>
+  </div>
+  <div id="panel">
+    <h1> HOLLYBROOK OPEN <small>singles final — club diorama</small></h1>
+
+    <div class="sec" id="sec-match">
+      <h2>Match</h2>
+      <div class="row"><label for="fmt">Format</label>
+        <select id="fmt" class="wide">
+          <option value="short">Short set (FAST4)</option>
+          <option value="set">One set</option>
+          <option value="bo3" selected>Best of 3</option>
+        </select></div>
+      <div class="row"><label for="p0">Player 1</label><select id="p0" class="wide"></select></div>
+      <div class="row"><label for="p1">Player 2</label><select id="p1" class="wide"></select></div>
+      <div class="row">
+        <button id="btnNew" class="wide on">New match</button>
+        <button id="btnPause">Pause</button></div>
+      <div class="row"><label for="spd">Speed</label>
+        <input id="spd" type="range" min="0.5" max="8" step="0.5" value="1">
+        <span class="val" id="spdV">1×</span></div>
+      <div class="row"><label class="hint" style="flex:1">
+        <input type="checkbox" id="skipCer"> Skip ceremony</label>
+        <label class="hint"><input type="checkbox" id="autoNext" checked> Auto-next</label></div>
+    </div>
+
+    <div class="sec" id="sec-court">
+      <h2>Court &amp; sky</h2>
+      <div class="row"><label for="surf">Surface</label>
+        <select id="surf" class="wide">
+          <option value="grass">Grass</option><option value="clay">Clay</option>
+          <option value="hard" selected>Hard</option><option value="carpet">Carpet</option>
+        </select></div>
+      <div class="row"><label for="tod">Time of day</label>
+        <select id="tod" class="wide">
+          <option value="day" selected>Day</option>
+          <option value="dusk">Dusk</option><option value="night">Night</option>
+        </select></div>
+    </div>
+
+    <div class="sec" id="sec-coach">
+      <h2>Coach</h2>
+      <div class="seg" id="tactic">
+        <button data-tac="auto" class="on" disabled>Auto</button>
+        <button data-tac="go" disabled>Go for it</button>
+        <button data-tac="safe" disabled>Safe</button>
+        <button data-tac="net" disabled>Rush net</button>
+        <button data-tac="drop" disabled>Drop</button>
+        <button data-tac="lob" disabled>Lob</button>
+      </div>
+      <div class="row"><label for="srvDir">Serve dir</label>
+        <select id="srvDir" class="wide" disabled>
+          <option value="auto" selected>Auto</option>
+          <option value="wide">Wide</option><option value="body">Body</option>
+          <option value="tee">T</option>
+        </select></div>
+      <div class="row">
+        <button id="btnAim" class="wide" disabled>Aim next shot (click court)</button>
+        <button id="btnChal" disabled>Challenge</button></div>
+    </div>
+
+    <div class="sec" id="sec-cam">
+      <h2>Camera</h2>
+      <div class="seg" id="camMode">
+        <button data-cam="tv">TV</button>
+        <button data-cam="club" class="on">Club</button>
+        <button data-cam="close">Close</button>
+      </div>
+      <div class="row"><label for="pix">Pixel size</label>
+        <input id="pix" type="range" min="1" max="6" step="1" value="2">
+        <span class="val" id="pixV">2</span></div>
+      <div class="hint">Q / E turn · wheel zoom · drag orbit (vertical = tilt) · shift-drag pan</div>
+    </div>
+
+    <div class="sec"><h2>Match centre</h2><div id="stats">No match yet.</div></div>
+    <div class="sec"><h2>Commentary feed</h2><ul id="feed"></ul></div>
+  </div>
+</div>
+<!--HB:JS-->

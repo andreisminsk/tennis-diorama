@@ -1,0 +1,10 @@
+# OS
+.DS_Store
+# agent scratch/cache
+.uhu/
+# local http log
+*.log
+# node never needed
+node_modules/
+# Python cache
+__pycache__/
