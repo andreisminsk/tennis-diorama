@@ -1,10 +1,12 @@
-# OS
+# OS cruft
 .DS_Store
-# agent scratch/cache
+
+# QA screenshots (archived locally, not tracked)
+qa/
+
+# uhu agent cache
 .uhu/
-# local http log
-*.log
-# node never needed
-node_modules/
-# Python cache
+
+# python
 __pycache__/
+*.pyc

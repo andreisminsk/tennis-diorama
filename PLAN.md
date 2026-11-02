@@ -124,9 +124,18 @@ are QA shortcuts only — the real transitions always live in FLOW, and P5 prove
   QA: enabled()=false pre-gesture ✓; real browser click #btnAudio → on ✓;
   full match at 8× with sound on — 0 audio-path errors, engine suite green;
   both dists rebuilt (offline 750 KiB). Timbre = human-listen flag for user.]
-## NEXT — P8 integration+offline QA (skip-ceremony, auto-next, phone layout QA,
-  file:// offline test, 8-checkpoint scripted session) → P9 perf (draw calls,
-  GC pass, phone layout). Challenge button stays disabled (P8).
+## P8 — Integration & polish — ✅ DONE (2026-11-02; qa/p8/)
+  [DONE: skip-ceremony + auto-next checkboxes wired (UI→ui:flags→FLOW); auto-next
+  VERIFIED LIVE (after SET & MATCH a fresh match auto-started — initially chased
+  as a bug, it's the feature). Mid-match surface(clay)+TOD(night)+cam(tv) switch
+  clean (0 errs). Offline file:// build boots, ZERO external refs, 0 errs, 28
+  scene meshes. Phone layout verified by DOM geometry: canvas 0..626 / panel
+  stacked below / scoreboard on. Pixel-value panel clip FIXED (flex fix in CSS).
+  BACKLOG (unconfirmed, vision service timed out): possible stray sprite over
+  marquee; banner text truncation is marquee scroll (by design).]
+## NEXT — P9: draw-call budget recheck (~133 total vs 60 static target — rig
+  compression ~87), GC/hot-path audit, 60 s fps sample, final 12-combo replay,
+  deliverable checklist. Challenge system = post-P9 polish.
 =======
 ## P4 — Ball & kinematics (gate: serve→fly→bounce→reset believable & calibrated)
 - court.js: repaintable court (4 surface variants via palette paint ops), lines,

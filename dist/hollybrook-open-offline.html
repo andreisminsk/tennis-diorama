@@ -41,7 +41,7 @@
           color:var(--acc); margin-bottom:8px}
   .row{display:flex; gap:8px; align-items:center; margin:6px 0}
   .row label{flex:0 0 92px; color:var(--dim); font-size:12px}
-  .row .val{min-width:2.4em; text-align:right; font-variant-numeric:tabular-nums}
+  .row .val{min-width:2.4em; text-align:right; font-variant-numeric:tabular-nums; flex:0 0 auto}
   select,button{background:var(--bg); color:var(--ink); border:1px solid var(--line);
     border-radius:5px; padding:4px 8px; font:inherit; font-size:13px}
   select:focus,button:focus{outline:1px solid var(--acc)}
@@ -2068,6 +2068,7 @@ HB.PEOPLE = (function () {
   }
 
   // ---------- animation (cheap procedural, called from actor coroutines + render) ----------
+  function sway(p, f, amp, ph, t) { p.rotation.x = Math.sin(t * f + ph) * amp; }  // P9: hoisted (no per-frame closure)
   function pose(rig, dt) {
     var r = rig.__rig;
     if (!isFinite(rig.position.x) || !isFinite(rig.position.y) || !isFinite(rig.position.z)) {
@@ -2090,7 +2091,6 @@ HB.PEOPLE = (function () {
     }
     var t = r.t += dt, k = r.state;
     var A = r.parts, w = r.phase;
-    function sway(p, f, amp, ph) { p.rotation.x = Math.sin(t * f + ph) * amp; }
     if (k === 'walk') {
       var f = 9;
       sway(A.legL, f, 0.75, 0); sway(A.legR, f, 0.75, Math.PI);
@@ -3054,18 +3054,39 @@ HB.FLOW = (function () {
     }
     yield HB.wait(t, 8);
   }
+  var flags = { skipCeremony: false, autoNext: true };
+  HB.bus.on('ui:flags', function (d) {
+    if (d.skipCeremony != null) flags.skipCeremony = !!d.skipCeremony;
+    if (d.autoNext != null) flags.autoNext = !!d.autoNext;
+  });
+  HB.bus.on('ui:newmatch', function () {                    // manual start beats auto-next
+    flags.autoNext = false;                                  // (restart via panel button)
+    HB.CORE.task(function* () { yield HB.wait(0); flags.autoNext = true; },
+      { name: 'flow:flagreset', max: 5 });
+  });
   function finishMatch(M) {
     if (M.finished) return;
     M.finished = true;
     M.state = 'trophy';
     var w = M.score.sets[0] > M.score.sets[1] ? 0 : 1;
     HB.CORE.task(function* () {
-      yield* handshake(M);
+      if (!flags.skipCeremony) {
+        yield* handshake(M);
+        HB.CROWD.excite(1); HB.CROWD.confetti(3);
+        log('TROPHY — ' + M.players[w].meta.name + ' wins the Hollybrook Open!', 'big');
+      } else {
+        log('Ceremony skipped — ' + M.players[w].meta.name + ' wins the Hollybrook Open!', 'big');
+      }
       HB.bus.emit('match:end', { winner: w });
-      HB.CROWD.excite(1); HB.CROWD.confetti(3);
-      log('TROPHY — ' + M.players[w].meta.name + ' wins the Hollybrook Open!', 'big');
       if (M.onDone) { var cb = M.onDone; M.onDone = null;
         cb({ winner: w, score: M.score.sets, games: M.score.gamesNow, stats: M.stats }); }
+      if (flags.autoNext) {                                  // P8: loop a new match
+        yield HB.wait(6, 12);
+        log('Auto-next: starting a fresh match.', '');
+        var metas = [M.players[0].meta, M.players[1].meta];
+        var M2 = newMatch(M.format, metas, M.surface);
+        startMatch(M2, null);
+      }
     }, { name: 'flow:trophy', max: 30 });
   }
 
@@ -3636,6 +3657,16 @@ HB.UI = (function () {
     HB.bus.on('rally:hit', clearRing);
     HB.bus.on('point:end', clearRing);
 
+    // ---- P8: skip-ceremony + auto-next ----
+    var skipCer = $('skipCer'), autoNext = $('autoNext');
+    if (skipCer) skipCer.addEventListener('change', function () {
+      HB.bus.emit('ui:flags', { skipCeremony: skipCer.checked });
+      HB.bus.emit('ui:log', { t: skipCer.checked ? 'Ceremony will be skipped.' : 'Ceremony on.' });
+    });
+    if (autoNext) autoNext.addEventListener('change', function () {
+      HB.bus.emit('ui:flags', { autoNext: autoNext.checked });
+      HB.bus.emit('ui:log', { t: autoNext.checked ? 'Auto-next on.' : 'Auto-next off.' });
+    });
     // ---- P7: audio toggle (gesture-gated) ----
     var btnAudio = $('btnAudio'), audState = $('audState');
     if (btnAudio) btnAudio.addEventListener('click', function () {
@@ -3659,6 +3690,7 @@ HB.UI = (function () {
 // camera → UI. Placeholder island top so QA-P0 has visible geometry before P1b.
 HB.CORE.boot = (function () {
   var scene, clock, raf = 0;
+  var frus = null, sphere = null, pm = null;                // P9: reused culling temps
 
   function buildScene() {
     scene = new THREE.Scene();
@@ -3728,6 +3760,7 @@ HB.CORE.boot = (function () {
       setTimeout(function () { HB.CORE.sched.wd.point = W0; }, 2000);
     }
 
+    frus = new THREE.Frustum(); sphere = new THREE.Sphere(); pm = new THREE.Matrix4();
     clock = new THREE.Clock();
     loop();
     HB.bus.emit('world:boot', { when: HB.CORE.sched.now() });
@@ -3738,9 +3771,17 @@ HB.CORE.boot = (function () {
     var dt = Math.min(clock.getDelta(), 0.1);
     HB.CORE.sched.step(dt);
     HB.CORE.camera.update(dt);
-    if (HB.PEOPLE && HB.PEOPLE.pose) {
+    if (HB.PEOPLE && HB.PEOPLE.pose) {                      // P9: frustum culling
       var rigs = HB.PEOPLE.actors();
-      for (var i = 0; i < rigs.length; i++) HB.PEOPLE.pose(rigs[i], dt);
+      pm.multiplyMatrices(HB.CORE.camera.object().projectionMatrix,
+        HB.CORE.camera.object().matrixWorldInverse);
+      frus.setFromProjectionMatrix(pm);
+      for (var i = 0; i < rigs.length; i++) {
+        var p = rigs[i].position;
+        sphere.center.set(p.x, p.y + 0.9, p.z);           // rig ~1.8 m tall
+        rigs[i].visible = frus.intersectsSphere(sphere);
+        if (rigs[i].visible) HB.PEOPLE.pose(rigs[i], dt);
+      }
     }
     if (HB.BALL && HB.BALL.ready) HB.BALL.step(Math.min(dt, 0.1) * HB.CORE.speed);
     HB.CORE.pipeline.render(scene, HB.CORE.camera.object());

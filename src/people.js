@@ -97,6 +97,7 @@ HB.PEOPLE = (function () {
   }
 
   // ---------- animation (cheap procedural, called from actor coroutines + render) ----------
+  function sway(p, f, amp, ph, t) { p.rotation.x = Math.sin(t * f + ph) * amp; }
   function pose(rig, dt) {
     var r = rig.__rig;
     if (!isFinite(rig.position.x) || !isFinite(rig.position.y) || !isFinite(rig.position.z)) {
@@ -119,16 +120,15 @@ HB.PEOPLE = (function () {
     }
     var t = r.t += dt, k = r.state;
     var A = r.parts, w = r.phase;
-    function sway(p, f, amp, ph) { p.rotation.x = Math.sin(t * f + ph) * amp; }
     if (k === 'walk') {
       var f = 9;
-      sway(A.legL, f, 0.75, 0); sway(A.legR, f, 0.75, Math.PI);
-      sway(A.armL, f, 0.5, Math.PI); sway(A.armR, f, 0.5, 0);
+      sway(A.legL, f, 0.75, 0, t); sway(A.legR, f, 0.75, Math.PI, t);
+      sway(A.armL, f, 0.5, Math.PI, t); sway(A.armR, f, 0.5, 0, t);
       rig.position.y = Math.abs(Math.sin(t * f)) * 0.045;   // step bob
     } else if (k === 'run') {
       var f2 = 11;
-      sway(A.legL, f2, 0.8, 0); sway(A.legR, f2, 0.8, Math.PI);
-      sway(A.armL, f2, 0.6, Math.PI); sway(A.armR, f2, 0.6, 0);
+      sway(A.legL, f2, 0.8, 0, t); sway(A.legR, f2, 0.8, Math.PI, t);
+      sway(A.armL, f2, 0.6, Math.PI, t); sway(A.armR, f2, 0.6, 0, t);
       A.torsoLean = 0.18;
       rig.rotation.x = 0.12;
     } else if (k === 'swing') {

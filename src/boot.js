@@ -2,6 +2,7 @@
 // camera → UI. Placeholder island top so QA-P0 has visible geometry before P1b.
 HB.CORE.boot = (function () {
   var scene, clock, raf = 0;
+  var frus = null, sphere = null, pm = null;                // P9: reused culling temps
 
   function buildScene() {
     scene = new THREE.Scene();
@@ -71,6 +72,7 @@ HB.CORE.boot = (function () {
       setTimeout(function () { HB.CORE.sched.wd.point = W0; }, 2000);
     }
 
+    frus = new THREE.Frustum(); sphere = new THREE.Sphere(); pm = new THREE.Matrix4();
     clock = new THREE.Clock();
     loop();
     HB.bus.emit('world:boot', { when: HB.CORE.sched.now() });
@@ -81,9 +83,17 @@ HB.CORE.boot = (function () {
     var dt = Math.min(clock.getDelta(), 0.1);
     HB.CORE.sched.step(dt);
     HB.CORE.camera.update(dt);
-    if (HB.PEOPLE && HB.PEOPLE.pose) {
+    if (HB.PEOPLE && HB.PEOPLE.pose) {                      // P9: frustum culling
       var rigs = HB.PEOPLE.actors();
-      for (var i = 0; i < rigs.length; i++) HB.PEOPLE.pose(rigs[i], dt);
+      pm.multiplyMatrices(HB.CORE.camera.object().projectionMatrix,
+        HB.CORE.camera.object().matrixWorldInverse);
+      frus.setFromProjectionMatrix(pm);
+      for (var i = 0; i < rigs.length; i++) {
+        var p = rigs[i].position;
+        sphere.center.set(p.x, p.y + 0.9, p.z);           // rig ~1.8 m tall
+        rigs[i].visible = frus.intersectsSphere(sphere);
+        if (rigs[i].visible) HB.PEOPLE.pose(rigs[i], dt);
+      }
     }
     if (HB.BALL && HB.BALL.ready) HB.BALL.step(Math.min(dt, 0.1) * HB.CORE.speed);
     HB.CORE.pipeline.render(scene, HB.CORE.camera.object());

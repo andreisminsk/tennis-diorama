@@ -256,12 +256,22 @@ HB.FLOW = (function () {
             coach.aim = null;
           }
         }
-        // hit from wherever the rig is now (it pre-moved during the ball's flight);
-        // WAITING for arrival let the ball bounce twice → every rally died at 1 shot
+        // P9 contact sync: own the shot EARLY (a bounce during our prep records b1
+        // instead of ending the point), then hit when the ball is actually close —
+        // contact point = ball's position (clamped) → no pass-then-snap artifact.
         var rigI = rigFor(M, idx);
-        var cx = U.clamp(rigI.position.x, -HALF - 1.2, HALF + 1.2);
+        pt.shot = { hitter: idx, b1: null };
+        yield HB.until(function () {
+          if (pt.over) return true;
+          var bp = HB.BALL.state().p;
+          var dx = bp[0] - rigI.position.x, dz = bp[2] - rigI.position.z;
+          return dx * dx + dz * dz < 1.96;                     // within ~1.4 m
+        }, 0.55);
+        var bp2 = HB.BALL.state().p;
+        var cx = U.clamp(bp2[0], rigI.position.x - 1.2, rigI.position.x + 1.2);
+        cx = U.clamp(cx, -HALF - 1.2, HALF + 1.2);
         if (Math.sign(cx || 1) !== endSign(M, idx)) cx = endSign(M, idx) * HALF * 0.85;
-        var cz = U.clamp(rigI.position.z, -SX - 1.0, SX + 1.0);
+        var cz = U.clamp(bp2[2], -SX - 1.0, SX + 1.0);
         hit(M, idx, { x: cx, y: 0.95, z: cz },
             { target: shot.target, spin: shot.spin, clearance: shot.clearance });
         pt.shot = { hitter: idx, b1: null };
@@ -295,6 +305,12 @@ HB.FLOW = (function () {
       }
     } finally {
       offs.forEach(function (f) { f(); });
+      if (M.rigs) M.rigs.forEach(function (r) {                // end stale walks (P9)
+        if (r && r.__rig) {
+          if (r.__rig.state === 'walk' || r.__rig.state === 'swing')
+            HB.PEOPLE.setState(r, 'idle');
+        }
+      });
     }
   }
   function pickDir(dir) {

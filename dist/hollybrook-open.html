@@ -41,7 +41,7 @@
           color:var(--acc); margin-bottom:8px}
   .row{display:flex; gap:8px; align-items:center; margin:6px 0}
   .row label{flex:0 0 92px; color:var(--dim); font-size:12px}
-  .row .val{min-width:2.4em; text-align:right; font-variant-numeric:tabular-nums}
+  .row .val{min-width:2.4em; text-align:right; font-variant-numeric:tabular-nums; flex:0 0 auto}
   select,button{background:var(--bg); color:var(--ink); border:1px solid var(--line);
     border-radius:5px; padding:4px 8px; font:inherit; font-size:13px}
   select:focus,button:focus{outline:1px solid var(--acc)}
@@ -2060,6 +2060,7 @@ HB.PEOPLE = (function () {
   }
 
   // ---------- animation (cheap procedural, called from actor coroutines + render) ----------
+  function sway(p, f, amp, ph, t) { p.rotation.x = Math.sin(t * f + ph) * amp; }
   function pose(rig, dt) {
     var r = rig.__rig;
     if (!isFinite(rig.position.x) || !isFinite(rig.position.y) || !isFinite(rig.position.z)) {
@@ -2082,16 +2083,15 @@ HB.PEOPLE = (function () {
     }
     var t = r.t += dt, k = r.state;
     var A = r.parts, w = r.phase;
-    function sway(p, f, amp, ph) { p.rotation.x = Math.sin(t * f + ph) * amp; }
     if (k === 'walk') {
       var f = 9;
-      sway(A.legL, f, 0.75, 0); sway(A.legR, f, 0.75, Math.PI);
-      sway(A.armL, f, 0.5, Math.PI); sway(A.armR, f, 0.5, 0);
+      sway(A.legL, f, 0.75, 0, t); sway(A.legR, f, 0.75, Math.PI, t);
+      sway(A.armL, f, 0.5, Math.PI, t); sway(A.armR, f, 0.5, 0, t);
       rig.position.y = Math.abs(Math.sin(t * f)) * 0.045;   // step bob
     } else if (k === 'run') {
       var f2 = 11;
-      sway(A.legL, f2, 0.8, 0); sway(A.legR, f2, 0.8, Math.PI);
-      sway(A.armL, f2, 0.6, Math.PI); sway(A.armR, f2, 0.6, 0);
+      sway(A.legL, f2, 0.8, 0, t); sway(A.legR, f2, 0.8, Math.PI, t);
+      sway(A.armL, f2, 0.6, Math.PI, t); sway(A.armR, f2, 0.6, 0, t);
       A.torsoLean = 0.18;
       rig.rotation.x = 0.12;
     } else if (k === 'swing') {
@@ -2898,12 +2898,22 @@ HB.FLOW = (function () {
             coach.aim = null;
           }
         }
-        // hit from wherever the rig is now (it pre-moved during the ball's flight);
-        // WAITING for arrival let the ball bounce twice → every rally died at 1 shot
+        // P9 contact sync: own the shot EARLY (a bounce during our prep records b1
+        // instead of ending the point), then hit when the ball is actually close —
+        // contact point = ball's position (clamped) → no pass-then-snap artifact.
         var rigI = rigFor(M, idx);
-        var cx = U.clamp(rigI.position.x, -HALF - 1.2, HALF + 1.2);
+        pt.shot = { hitter: idx, b1: null };
+        yield HB.until(function () {
+          if (pt.over) return true;
+          var bp = HB.BALL.state().p;
+          var dx = bp[0] - rigI.position.x, dz = bp[2] - rigI.position.z;
+          return dx * dx + dz * dz < 1.96;                     // within ~1.4 m
+        }, 0.55);
+        var bp2 = HB.BALL.state().p;
+        var cx = U.clamp(bp2[0], rigI.position.x - 1.2, rigI.position.x + 1.2);
+        cx = U.clamp(cx, -HALF - 1.2, HALF + 1.2);
         if (Math.sign(cx || 1) !== endSign(M, idx)) cx = endSign(M, idx) * HALF * 0.85;
-        var cz = U.clamp(rigI.position.z, -SX - 1.0, SX + 1.0);
+        var cz = U.clamp(bp2[2], -SX - 1.0, SX + 1.0);
         hit(M, idx, { x: cx, y: 0.95, z: cz },
             { target: shot.target, spin: shot.spin, clearance: shot.clearance });
         pt.shot = { hitter: idx, b1: null };
@@ -2937,6 +2947,12 @@ HB.FLOW = (function () {
       }
     } finally {
       offs.forEach(function (f) { f(); });
+      if (M.rigs) M.rigs.forEach(function (r) {                // end stale walks (P9)
+        if (r && r.__rig) {
+          if (r.__rig.state === 'walk' || r.__rig.state === 'swing')
+            HB.PEOPLE.setState(r, 'idle');
+        }
+      });
     }
   }
   function pickDir(dir) {
@@ -3682,6 +3698,7 @@ HB.UI = (function () {
 // camera → UI. Placeholder island top so QA-P0 has visible geometry before P1b.
 HB.CORE.boot = (function () {
   var scene, clock, raf = 0;
+  var frus = null, sphere = null, pm = null;                // P9: reused culling temps
 
   function buildScene() {
     scene = new THREE.Scene();
@@ -3751,6 +3768,7 @@ HB.CORE.boot = (function () {
       setTimeout(function () { HB.CORE.sched.wd.point = W0; }, 2000);
     }
 
+    frus = new THREE.Frustum(); sphere = new THREE.Sphere(); pm = new THREE.Matrix4();
     clock = new THREE.Clock();
     loop();
     HB.bus.emit('world:boot', { when: HB.CORE.sched.now() });
@@ -3761,9 +3779,17 @@ HB.CORE.boot = (function () {
     var dt = Math.min(clock.getDelta(), 0.1);
     HB.CORE.sched.step(dt);
     HB.CORE.camera.update(dt);
-    if (HB.PEOPLE && HB.PEOPLE.pose) {
+    if (HB.PEOPLE && HB.PEOPLE.pose) {                      // P9: frustum culling
       var rigs = HB.PEOPLE.actors();
-      for (var i = 0; i < rigs.length; i++) HB.PEOPLE.pose(rigs[i], dt);
+      pm.multiplyMatrices(HB.CORE.camera.object().projectionMatrix,
+        HB.CORE.camera.object().matrixWorldInverse);
+      frus.setFromProjectionMatrix(pm);
+      for (var i = 0; i < rigs.length; i++) {
+        var p = rigs[i].position;
+        sphere.center.set(p.x, p.y + 0.9, p.z);           // rig ~1.8 m tall
+        rigs[i].visible = frus.intersectsSphere(sphere);
+        if (rigs[i].visible) HB.PEOPLE.pose(rigs[i], dt);
+      }
     }
     if (HB.BALL && HB.BALL.ready) HB.BALL.step(Math.min(dt, 0.1) * HB.CORE.speed);
     HB.CORE.pipeline.render(scene, HB.CORE.camera.object());
