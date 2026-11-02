@@ -22,7 +22,9 @@ HB.RALLY = (function () {
     var z = (roll(meta.r) < 0.62) ? (roll(meta.r) < 0.5 ? wideZ : -wideZ) : lineZ * (meta.side || 1);
     var risk = meta.player.tactic.risk / 100;
     var topRate = (meta.player.tactic.net > 45) ? -1600 - risk * 1800 : -700 - risk * 900;
-    return { target: { x: deepX * (1 + meta.player.tactic.cons / 400), z: z },
+    // FIX: cons is a TOP-LEVEL Player field (CONTRACT §4) — tactic.cons is
+    // undefined → NaN deepX → every non-netted ground shot aimed at x=NaN.
+    return { target: { x: deepX * (1 + (meta.player.cons || 50) / 400), z: z },
              spin: { top: topRate, side: 0 }, clearance: 0.4 + risk * 0.5,
              Tscale: 1, kind: 'ground' };
   }

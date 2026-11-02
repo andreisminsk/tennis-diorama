@@ -331,17 +331,17 @@ HB.FLOW = (function () {
     var rest = M.score.tb ? 0.5 : (M.gameNo % 2 === 1 ? 1.6 : 0.7);
     var home = M.rigs;
     HB.CORE.task(function* () {                              // recover to baseline
-      if (home && home[0]) {
+      if (home && home[0] && HB.PEOPLE.actors().indexOf(home[0]) >= 0) {
         HB.PEOPLE.setState(home[0], 'idle');
         yield* glideWait(home[0], endSign(M, 0) * 13.0, 0.6);
       }
-    }, { name: 'flow:recover0', max: 8 });
+    }, { name: 'flow:recover0', max: 20 });
     HB.CORE.task(function* () {
-      if (home && home[1]) {
+      if (home && home[1] && HB.PEOPLE.actors().indexOf(home[1]) >= 0) {
         HB.PEOPLE.setState(home[1], 'idle');
         yield* glideWait(home[1], endSign(M, 1) * 13.0, -0.6);
       }
-    }, { name: 'flow:recover1', max: 8 });
+    }, { name: 'flow:recover1', max: 20 });
     HB.CORE.task(function* () {
       yield HB.wait(rest, 6);
       nextPoint(M);
