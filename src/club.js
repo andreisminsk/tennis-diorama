@@ -52,10 +52,10 @@ HB.CLUB = (function () {
       cut.push({ grp: grp, k: 0, phi: phi, __cut: { quad: quad },
                  __mats: grp.__mats, __seats: grp.__seats });
     }
-    place(stand(27, 7, 22), 0, 8.6, 0, 0, 0);               // south sideline
+    place(stand(27, 4, 20), 0, 8.6, 0, 0, 0);               // south sideline (4 rows: plaza behind)
     place(stand(27, 8, 22), 0, -8.6, Math.PI, 2, Math.PI);  // north sideline (LED above)
     place(stand(16, 4, 12), 16.9, 0, Math.PI / 2, 1, Math.PI / 2);   // east baseline
-    place(stand(16, 4, 12), -16.9, 0, -Math.PI / 2, 3, -Math.PI / 2); // west baseline
+    place(stand(14, 4, 10), -16.4, 0, -Math.PI / 2, 3, -Math.PI / 2); // west baseline (shorter: plaza passage on its south)
   }
 
   // ---- clubhouse (north) ----
@@ -175,12 +175,16 @@ HB.CLUB = (function () {
     G = new THREE.Group(); G.name = 'club';
     buildStands(); buildClubhouse(); buildLED();
     sc.add(G);
+    // NAV from TRUE geometry: stands' front row at the group origin, rows rising
+    // outward (south: z 8.5→12.4; north: z −16.1→−8.5; east/west: x ±16.7→±20.9,
+    // length 16 → z ±8.2). Plaza passage between west-stand south end and the
+    // marquee runs at x −16.5..−15.5, z 8.0..14+ (kept free on purpose).
     var n = HB.CORE.nav;
     n.rect(-11.4, -23.2, 11.4, -17.4, true);      // clubhouse
-    n.rect(-14.2, -17.4, 14.2, -13.4, true);      // north stand
-    n.rect(-14.2, 12.6, 14.2, 17.4, true);        // south stand
-    n.rect(-17.4, -11.4, -12.4, 11.4, true);      // west stand
-    n.rect(12.4, -11.4, 17.4, 11.4, true);        // east stand
+    n.rect(-13.7, -16.1, 13.7, -8.5, true);       // north stand (8 rows)
+    n.rect(-13.7, 8.5, 13.7, 12.4, true);         // south stand (4 rows)
+    n.rect(-20.9, -8.2, -16.7, 8.2, true);        // west baseline stand
+    n.rect(16.7, -8.2, 20.9, 8.2, true);          // east baseline stand
 
     HB.CORE.task(function* () {                    // LED scroll + flags
       var t = 0;

@@ -30,7 +30,10 @@ HB.PEOPLE = (function () {
       m: new THREE.Matrix4().makeTranslation(0, 1.52 * s, 0), color: opts.skin };
     var hair = { g: new THREE.BoxGeometry(0.24, 0.08, 0.24),
       m: new THREE.Matrix4().makeTranslation(0, 1.63 * s, 0), color: opts.hair };
-    items.push(torso, hips, head, hair);
+    var face = { g: new THREE.BoxGeometry(0.18, 0.17, 0.02),
+      m: new THREE.Matrix4().makeTranslation(0, 1.5 * s, 0.12), color: opts.skin };
+    // NOTE: rig "front" is local +z (actors rotated to face +x/−x via rotY ∓π/2)
+    items.push(torso, hips, head, hair, face);   // face patch: brighter on the FRONT (−z is back)
 
     // limbs as pivot groups (rotated at hip/shoulder)
     function mkLimb(len, thick, colHex, px, py, pz) {
@@ -69,6 +72,11 @@ HB.PEOPLE = (function () {
     ];
     rk.add(new THREE.Mesh(U.mergeGeoms(rkItems),
       new THREE.MeshLambertMaterial({ color: '#ffffff', vertexColors: true })));
+    // strings: pale disc inset in the frame
+    var str = new THREE.Mesh(new THREE.CircleGeometry(0.085, 10),
+      new THREE.MeshBasicMaterial({ color: '#dfe7ee' }));
+    str.position.set(0, 0.47, 0.001);
+    rk.add(str);
     rk.position.set(0, -0.6 * s, 0.02);
     (hand ? armL : armR).add(rk);
     if (hand) rk.scale.x = -1;                    // lefty mirror
@@ -83,7 +91,8 @@ HB.PEOPLE = (function () {
       transparent: true, opacity: 0.28, depthWrite: false }));
     sh.position.y = 0.02;
     g.add(sh);
-    g.__rig = { s: s, parts: dyn, phase: Math.random() * 6.28, state: 'idle', t: 0 };
+    g.__rig = { s: s, parts: dyn, phase: Math.random() * 6.28, state: 'idle', t: Math.random() * 3 };
+    // random t offset: legs never in phase-lock across rigs
     return g;
   }
 
@@ -93,10 +102,10 @@ HB.PEOPLE = (function () {
     var A = r.parts, w = r.phase;
     function sway(p, f, amp, ph) { p.rotation.x = Math.sin(t * f + ph) * amp; }
     if (k === 'walk') {
-      var f = 7;
-      sway(A.legL, f, 0.55, 0); sway(A.legR, f, 0.55, Math.PI);
-      sway(A.armL, f * 0.9, 0.35, Math.PI); sway(A.armR, f * 0.9, 0.35, 0);
-      rig.position.y += 0; // walk bob baked in legs
+      var f = 9;
+      sway(A.legL, f, 0.75, 0); sway(A.legR, f, 0.75, Math.PI);
+      sway(A.armL, f, 0.5, Math.PI); sway(A.armR, f, 0.5, 0);
+      rig.position.y = Math.abs(Math.sin(t * f)) * 0.045;   // step bob
     } else if (k === 'run') {
       var f2 = 11;
       sway(A.legL, f2, 0.8, 0); sway(A.legR, f2, 0.8, Math.PI);
@@ -150,7 +159,7 @@ HB.PEOPLE = (function () {
     ump.position.set(0, 2.0, 7.6);
     HB.CORE.scene.add(ump);
     // line judges: 3 (baselines x±, sidelines z)
-    [[-12.8, -6.5], [12.8, 6.5], [0, 10.2]].forEach(function (p, i) {
+    [[-12.8, -7.2], [12.8, 7.2], [0, -7.9]].forEach(function (p, i) {
       var lj = makeRig({ shirt: '#7fb069', shorts: '#262d36', skin: SKIN.ref,
         hair: HAIROPT[i], scale: 0.95 });
       lj.position.set(p[0], 0, p[1]);
@@ -175,26 +184,34 @@ HB.PEOPLE = (function () {
       var rig = courtActor(P.meta, P.side);
       var path = HB.CORE.nav.path(P.from[0], P.from[1], P.to[0], P.to[1]) ||
         [{ x: P.from[0], z: P.from[1] }, { x: P.to[0], z: P.to[1] }];
-      return { rig: rig, path: path, speed: 1.3 + i * 0.05 };
+      return { rig: rig, path: path, speed: 2.0 + i * 0.05 };
     });
     for (var j = 0; j < jobs.length; j++) setState(jobs[j].rig, 'walk');
     var seg = 0, tt = 0;
-    var dtScaled = HB.CORE.sched.delta() || 0.016;
-    while (seg < jobs[0].path.length - 1) {
+    var dtScaled;
+    var done0 = 0;
+    while (done0 < jobs.length) {
+      dtScaled = HB.CORE.sched.delta() || 0.016;
       var allArrived = true;
       for (var j2 = 0; j2 < jobs.length; j2++) {
         var J = jobs[j2], P2 = J.path;
-        if (J.seg === undefined) J.seg = 0, J.tt = 0;
-        var a = P2[J.seg], b = P2[Math.min(J.seg + 1, P2.length - 1)];
-        var d = Math.hypot(b.x - a.x, b.z - a.z) || 0.01;
-        J.tt += J.speed * dtScaled * (J.slow ? 0.8 : 1) / d;
-        if (J.tt >= 1) { J.tt = 0; J.seg++; if (J.seg < P2.length - 1) allArrived = false; }
-        else allArrived = false;
-        var k = Math.min(1, J.tt);
-        J.rig.position.x = a.x + (b.x - a.x) * k;
-        J.rig.position.z = a.z + (b.z - a.z) * k;
+        if (J.seg2 === undefined) { J.seg2 = 0; J.tt = 0; }
+        if (J.seg2 < P2.length - 1) {
+          allArrived = false;
+          var a = P2[J.seg2], b = P2[Math.min(J.seg2 + 1, P2.length - 1)];
+          var d = Math.hypot(b.x - a.x, b.z - a.z) || 0.01;
+          J.tt += J.speed * dtScaled / d;
+          if (J.tt >= 1) { J.tt = 0; J.seg2++; }
+          var k = Math.min(1, J.tt);
+          J.rig.position.x = a.x + (b.x - a.x) * k;
+          J.rig.position.z = a.z + (b.z - a.z) * k;
+          J.rig.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
+        }
       }
       yield HB.wait(0.033, 5);
+      done0 = jobs.filter(function (J) {
+        return J.seg2 >= J.path.length - 1;
+      }).length;
     }
     for (var j3 = 0; j3 < jobs.length; j3++) setState(jobs[j3].rig, 'idle');
   }

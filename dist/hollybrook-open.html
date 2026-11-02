@@ -1104,12 +1104,25 @@ HB.CORE.nav = (function () {
     if (!inGrid(c.cx, c.cz)) return;
     cells[idx(c.cx, c.cz)] = blocked ? 1 : 0;
   }
-  function rect(x0, z0, x1, z1, blocked) {
+  var writers = [];
+  function rect(x0, z0, x1, z1, blocked, tag) {
     var a = w2c(Math.min(x0, x1), Math.min(z0, z1));
     var b = w2c(Math.max(x0, x1), Math.max(z0, z1));
     for (var cz = Math.max(0, a.cz); cz <= Math.min(NZ - 1, b.cz); cz++)
-      for (var cx = Math.max(0, a.cx); cx <= Math.min(NX - 1, b.cx); cx++)
+      for (var cx = Math.max(0, a.cx); cx <= Math.min(NX - 1, b.cx); cx++) {
         cells[idx(cx, cz)] = blocked ? 1 : 0;
+        if (tag) (writers[idx(cx, cz)] = writers[idx(cx, cz)] || []).push(tag);
+      }
+  }
+  function who(cx, cz) { return (writers[idx(cx, cz)] || []).join('|') || (cells[idx(cx, cz)] ? 'tagless' : 'free'); }
+  var discW = [];
+  function disc(x, z, r, blocked) {
+    for (var cz = Math.floor(z - r); cz <= Math.ceil(z + r); cz++)
+      for (var cx = Math.floor(x - r); cx <= Math.ceil(x + r); cx++)
+        if (inGrid(cx, cz)) {
+          var w = c2w(cx, cz), dx = w.x - x, dz = w.z - z;
+          if (dx * dx + dz * dz <= r * r) cells[idx(cx, cz)] = blocked ? 1 : 0;
+        }
   }
   function disc(x, z, r, blocked) {
     for (var cz = Math.floor(z - r); cz <= Math.ceil(z + r); cz++)
@@ -1433,8 +1446,8 @@ HB.COURT = (function () {
     // NAV: court slab + net + board footprints blocked; apron walkable (§5)
     var nav = HB.CORE.nav;
     nav.rect(-12.5, -6.0, 12.5, 6.0, true);                    // slab (players use exact coords)
-    nav.rect(13.5, -7.0, 14.3, 7.0, true);                     // board row E
-    nav.rect(-14.3, -7.0, -13.5, 7.0, true);                   // board row W
+    nav.rect(13.5, -6.9, 14.3, 6.9, true);                     // board row E
+    nav.rect(-14.3, -6.9, -13.5, 6.9, true);                   // board row W
 
     HB.CORE.task(function* () {
       while (true) { yield HB.wait(0.25); fadeMarks(0.25); }
@@ -1510,6 +1523,7 @@ HB.GROUNDS = (function () {
   ];
   var LAMPS = [[-19.4, 13.2], [-11.8, 16.6], [12, 13], [-12.2, 11]];
   var BEDS = [[13.8, 13.4], [16.4, 13.4], [19, 13.4]];
+  // plaza/marquee in the SW corner: z 14.4..17.4 (south stand ends z 13.8)
   var BENCHES = [];
   function bench(x, z, ry) {
     BENCHES.push({ g: new THREE.BoxGeometry(1.7, 0.1, 0.46), m: trs(x, 0.42, z, ry) });
@@ -1556,8 +1570,8 @@ HB.GROUNDS = (function () {
       return { g: g, color: '#b2a698' };
     }
     var items = [
-      p(2.4, 1.4, -10.6, 14.8),   // plaza ↔ apron
-      p(1.6, 1.0, -15.5, 18.05),  // plaza ↔ gates
+      p(2.0, 5.0, -13.8, 13.6),   // plaza ↔ apron (through side corridor)
+      p(1.6, 1.0, -15.5, 19.0),   // plaza ↔ gates
       p(4.2, 1.4, -18.8, 0),      // apron ↔ practice court (apron now spans x ±17)
       p(2.4, 1.4, 10.6, 14.6),    // apron ↔ garden
       p(3.2, 1.3, 13.4, 14.6)
@@ -1579,22 +1593,22 @@ HB.GROUNDS = (function () {
     return t;
   }
 
-  function plaza() { // south-west (ARCH §5)
+  function plaza() { // south-west, behind the south stand (z > 13.8 in rotated layout)
     var pg = new THREE.CircleGeometry(1, 40);
-    pg.scale(4.0, 2.6, 1); pg.rotateX(-Math.PI / 2); pg.translate(-13.8, 0.02, 15.4);
+    pg.scale(4.0, 2.6, 1); pg.rotateX(-Math.PI / 2); pg.translate(-13.8, 0.02, 16.6);
     G.add(new THREE.Mesh(pg, new THREE.MeshLambertMaterial({ color: '#cfc5b4' })));
     // marquee
     var items = [];
-    [[-2.4, -1.2], [2.4, -1.2], [-2.4, 1.2], [2.4, 1.2]].forEach(function (c) {
+    [[-2.4, -1.5], [2.4, -1.5], [-2.4, 1.5], [2.4, 1.5]].forEach(function (c) {
       items.push({ g: new THREE.CylinderGeometry(0.1, 0.13, 3.0, 8),
-        m: tx(-13.6 + c[0], 1.5, 14.6 + c[1]), color: '#85613f' });
+        m: tx(-13.6 + c[0], 1.5, 15.9 + c[1]), color: '#85613f' });
     });
-    items.push({ g: new THREE.BoxGeometry(5.6, 0.2, 3.2),
-      m: tx(-13.6, 3.05, 14.6), color: '#6b4a2f' });
+    items.push({ g: new THREE.BoxGeometry(5.6, 0.2, 3.4),
+      m: tx(-13.6, 3.05, 15.9), color: '#6b4a2f' });
     G.add(new THREE.Mesh(U.mergeGeoms(items), vcMat()));
     var bn = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.0),
       new THREE.MeshBasicMaterial({ map: bannerTex('HOLLYBROOK OPEN', 'SINGLES FINAL') }));
-    bn.position.set(-13.6, 2.35, 15.9);
+    bn.position.set(-13.6, 2.35, 17.2);
     G.add(bn);
     // gates at the island rim
     var gi = [
@@ -1603,7 +1617,7 @@ HB.GROUNDS = (function () {
       { g: new THREE.BoxGeometry(3.1, 0.34, 0.5), m: tx(-15.5, 2.5, 18.3), color: '#7d7469' }
     ];
     G.add(new THREE.Mesh(U.mergeGeoms(gi), vcMat()));
-    bench(-15.6, 14.6, Math.PI / 2 + 0.2); bench(-11.6, 13.6, -0.9); bench(-13.9, 17.2, 0.1);
+    bench(-17.6, 14.9, Math.PI / 2 + 0.2); bench(-11.2, 14.2, -1.1); bench(-9.9, 17.6, 0.2);
   }
 
   function garden() { // south-east
@@ -1682,14 +1696,14 @@ HB.GROUNDS = (function () {
   function navBlocks() {
     var n = HB.CORE.nav;
     n.rect(-29.2, -9.5, -20.4, 9.5, true);       // practice slab (moved west)
-    n.rect(-16.2, 13.2, -11.0, 16.0, true);      // marquee
+    n.rect(-18.6, 14.2, -13.4, 17.2, true);      // marquee (SW, clear of south stand z 13.8)
     n.rect(-17.2, 18.0, -13.8, 18.6, true);      // gates
     BEDS.forEach(function (b) { n.rect(b[0] - 1.1, b[1] - 0.5, b[0] + 1.1, b[1] + 0.5, true); });
     TREES.forEach(function (T) { n.disc(T[0], T[1], 0.8, true); });
     LAMPS.forEach(function (L) { n.disc(L[0], L[1], 0.3, true); });
     HB.CFG.masts.forEach(function (M) { n.disc(M[0], M[1], 0.55, true); });
     [
-      [-15.6, 14.6], [-11.6, 13.6], [-13.9, 17.2], [14.2, 16.9], [18.6, 16.7]
+      [-17.6, 14.9], [-11.2, 14.2], [-9.9, 17.6], [14.2, 16.9], [18.6, 16.7]
     ].forEach(function (b) { n.rect(b[0] - 0.95, b[1] - 0.4, b[0] + 0.95, b[1] + 0.4, true); });
   }
 
@@ -1752,10 +1766,10 @@ HB.CLUB = (function () {
       cut.push({ grp: grp, k: 0, phi: phi, __cut: { quad: quad },
                  __mats: grp.__mats, __seats: grp.__seats });
     }
-    place(stand(27, 7, 22), 0, 8.6, 0, 0, 0);               // south sideline
+    place(stand(27, 4, 20), 0, 8.6, 0, 0, 0);               // south sideline (4 rows: plaza behind)
     place(stand(27, 8, 22), 0, -8.6, Math.PI, 2, Math.PI);  // north sideline (LED above)
     place(stand(16, 4, 12), 16.9, 0, Math.PI / 2, 1, Math.PI / 2);   // east baseline
-    place(stand(16, 4, 12), -16.9, 0, -Math.PI / 2, 3, -Math.PI / 2); // west baseline
+    place(stand(14, 4, 10), -16.4, 0, -Math.PI / 2, 3, -Math.PI / 2); // west baseline (shorter: plaza passage on its south)
   }
 
   // ---- clubhouse (north) ----
@@ -1875,12 +1889,16 @@ HB.CLUB = (function () {
     G = new THREE.Group(); G.name = 'club';
     buildStands(); buildClubhouse(); buildLED();
     sc.add(G);
+    // NAV from TRUE geometry: stands' front row at the group origin, rows rising
+    // outward (south: z 8.5→12.4; north: z −16.1→−8.5; east/west: x ±16.7→±20.9,
+    // length 16 → z ±8.2). Plaza passage between west-stand south end and the
+    // marquee runs at x −16.5..−15.5, z 8.0..14+ (kept free on purpose).
     var n = HB.CORE.nav;
     n.rect(-11.4, -23.2, 11.4, -17.4, true);      // clubhouse
-    n.rect(-14.2, -17.4, 14.2, -13.4, true);      // north stand
-    n.rect(-14.2, 12.6, 14.2, 17.4, true);        // south stand
-    n.rect(-17.4, -11.4, -12.4, 11.4, true);      // west stand
-    n.rect(12.4, -11.4, 17.4, 11.4, true);        // east stand
+    n.rect(-13.7, -16.1, 13.7, -8.5, true);       // north stand (8 rows)
+    n.rect(-13.7, 8.5, 13.7, 12.4, true);         // south stand (4 rows)
+    n.rect(-20.9, -8.2, -16.7, 8.2, true);        // west baseline stand
+    n.rect(16.7, -8.2, 20.9, 8.2, true);          // east baseline stand
 
     HB.CORE.task(function* () {                    // LED scroll + flags
       var t = 0;
@@ -1938,7 +1956,10 @@ HB.PEOPLE = (function () {
       m: new THREE.Matrix4().makeTranslation(0, 1.52 * s, 0), color: opts.skin };
     var hair = { g: new THREE.BoxGeometry(0.24, 0.08, 0.24),
       m: new THREE.Matrix4().makeTranslation(0, 1.63 * s, 0), color: opts.hair };
-    items.push(torso, hips, head, hair);
+    var face = { g: new THREE.BoxGeometry(0.18, 0.17, 0.02),
+      m: new THREE.Matrix4().makeTranslation(0, 1.5 * s, 0.12), color: opts.skin };
+    // NOTE: rig "front" is local +z (actors rotated to face +x/−x via rotY ∓π/2)
+    items.push(torso, hips, head, hair, face);   // face patch: brighter on the FRONT (−z is back)
 
     // limbs as pivot groups (rotated at hip/shoulder)
     function mkLimb(len, thick, colHex, px, py, pz) {
@@ -1977,6 +1998,11 @@ HB.PEOPLE = (function () {
     ];
     rk.add(new THREE.Mesh(U.mergeGeoms(rkItems),
       new THREE.MeshLambertMaterial({ color: '#ffffff', vertexColors: true })));
+    // strings: pale disc inset in the frame
+    var str = new THREE.Mesh(new THREE.CircleGeometry(0.085, 10),
+      new THREE.MeshBasicMaterial({ color: '#dfe7ee' }));
+    str.position.set(0, 0.47, 0.001);
+    rk.add(str);
     rk.position.set(0, -0.6 * s, 0.02);
     (hand ? armL : armR).add(rk);
     if (hand) rk.scale.x = -1;                    // lefty mirror
@@ -1991,7 +2017,8 @@ HB.PEOPLE = (function () {
       transparent: true, opacity: 0.28, depthWrite: false }));
     sh.position.y = 0.02;
     g.add(sh);
-    g.__rig = { s: s, parts: dyn, phase: Math.random() * 6.28, state: 'idle', t: 0 };
+    g.__rig = { s: s, parts: dyn, phase: Math.random() * 6.28, state: 'idle', t: Math.random() * 3 };
+    // random t offset: legs never in phase-lock across rigs
     return g;
   }
 
@@ -2001,10 +2028,10 @@ HB.PEOPLE = (function () {
     var A = r.parts, w = r.phase;
     function sway(p, f, amp, ph) { p.rotation.x = Math.sin(t * f + ph) * amp; }
     if (k === 'walk') {
-      var f = 7;
-      sway(A.legL, f, 0.55, 0); sway(A.legR, f, 0.55, Math.PI);
-      sway(A.armL, f * 0.9, 0.35, Math.PI); sway(A.armR, f * 0.9, 0.35, 0);
-      rig.position.y += 0; // walk bob baked in legs
+      var f = 9;
+      sway(A.legL, f, 0.75, 0); sway(A.legR, f, 0.75, Math.PI);
+      sway(A.armL, f, 0.5, Math.PI); sway(A.armR, f, 0.5, 0);
+      rig.position.y = Math.abs(Math.sin(t * f)) * 0.045;   // step bob
     } else if (k === 'run') {
       var f2 = 11;
       sway(A.legL, f2, 0.8, 0); sway(A.legR, f2, 0.8, Math.PI);
@@ -2058,7 +2085,7 @@ HB.PEOPLE = (function () {
     ump.position.set(0, 2.0, 7.6);
     HB.CORE.scene.add(ump);
     // line judges: 3 (baselines x±, sidelines z)
-    [[-12.8, -6.5], [12.8, 6.5], [0, 10.2]].forEach(function (p, i) {
+    [[-12.8, -7.2], [12.8, 7.2], [0, -7.9]].forEach(function (p, i) {
       var lj = makeRig({ shirt: '#7fb069', shorts: '#262d36', skin: SKIN.ref,
         hair: HAIROPT[i], scale: 0.95 });
       lj.position.set(p[0], 0, p[1]);
@@ -2083,26 +2110,34 @@ HB.PEOPLE = (function () {
       var rig = courtActor(P.meta, P.side);
       var path = HB.CORE.nav.path(P.from[0], P.from[1], P.to[0], P.to[1]) ||
         [{ x: P.from[0], z: P.from[1] }, { x: P.to[0], z: P.to[1] }];
-      return { rig: rig, path: path, speed: 1.3 + i * 0.05 };
+      return { rig: rig, path: path, speed: 2.0 + i * 0.05 };
     });
     for (var j = 0; j < jobs.length; j++) setState(jobs[j].rig, 'walk');
     var seg = 0, tt = 0;
-    var dtScaled = HB.CORE.sched.delta() || 0.016;
-    while (seg < jobs[0].path.length - 1) {
+    var dtScaled;
+    var done0 = 0;
+    while (done0 < jobs.length) {
+      dtScaled = HB.CORE.sched.delta() || 0.016;
       var allArrived = true;
       for (var j2 = 0; j2 < jobs.length; j2++) {
         var J = jobs[j2], P2 = J.path;
-        if (J.seg === undefined) J.seg = 0, J.tt = 0;
-        var a = P2[J.seg], b = P2[Math.min(J.seg + 1, P2.length - 1)];
-        var d = Math.hypot(b.x - a.x, b.z - a.z) || 0.01;
-        J.tt += J.speed * dtScaled * (J.slow ? 0.8 : 1) / d;
-        if (J.tt >= 1) { J.tt = 0; J.seg++; if (J.seg < P2.length - 1) allArrived = false; }
-        else allArrived = false;
-        var k = Math.min(1, J.tt);
-        J.rig.position.x = a.x + (b.x - a.x) * k;
-        J.rig.position.z = a.z + (b.z - a.z) * k;
+        if (J.seg2 === undefined) { J.seg2 = 0; J.tt = 0; }
+        if (J.seg2 < P2.length - 1) {
+          allArrived = false;
+          var a = P2[J.seg2], b = P2[Math.min(J.seg2 + 1, P2.length - 1)];
+          var d = Math.hypot(b.x - a.x, b.z - a.z) || 0.01;
+          J.tt += J.speed * dtScaled / d;
+          if (J.tt >= 1) { J.tt = 0; J.seg2++; }
+          var k = Math.min(1, J.tt);
+          J.rig.position.x = a.x + (b.x - a.x) * k;
+          J.rig.position.z = a.z + (b.z - a.z) * k;
+          J.rig.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
+        }
       }
       yield HB.wait(0.033, 5);
+      done0 = jobs.filter(function (J) {
+        return J.seg2 >= J.path.length - 1;
+      }).length;
     }
     for (var j3 = 0; j3 < jobs.length; j3++) setState(jobs[j3].rig, 'idle');
   }
@@ -2248,6 +2283,16 @@ HB.CORE.boot = (function () {
       var sel = document.getElementById('surf');
       if (sel) { sel.value = ps; HB.bus.emit('surface:set', { surface: ps }); }
     }
+    // P3 default: the island is inhabited on load — officials + both players
+    // walk in from the plaza after a short beat (no click needed until P5 flow).
+    HB.PEOPLE.officials();
+    HB.CORE.task(function* () {
+      yield HB.wait(1.2, 10);
+      yield* HB.PEOPLE.walkOn([
+        { meta: HB.CFG.roster[0], side: -1, from: [-18, -12], to: [-9.2, 0.6] },
+        { meta: HB.CFG.roster[1], side: 1, from: [-18, -10.6], to: [9.2, -0.6] }
+      ]);
+    }, { name: 'boot:walkon', max: 60 });
     HB.CORE.nav.rect(-32, -20, 32, -19, true);  // island rim sanity (real layout P1b)
 
     var fmt = HB.DEBUG.params;                  // QA boot params (ARCH §14)
@@ -2261,9 +2306,13 @@ HB.CORE.boot = (function () {
 
   function loop() {
     raf = requestAnimationFrame(loop);
-    var dt = clock.getDelta();
-    HB.CORE.sched.step(Math.min(dt, 0.1));
-    HB.CORE.camera.update(Math.min(dt, 0.1));
+    var dt = Math.min(clock.getDelta(), 0.1);
+    HB.CORE.sched.step(dt);
+    HB.CORE.camera.update(dt);
+    if (HB.PEOPLE && HB.PEOPLE.pose) {
+      var rigs = HB.PEOPLE.actors();
+      for (var i = 0; i < rigs.length; i++) HB.PEOPLE.pose(rigs[i], dt);
+    }
     HB.CORE.pipeline.render(scene, HB.CORE.camera.object());
   }
 

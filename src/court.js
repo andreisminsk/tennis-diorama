@@ -219,8 +219,8 @@ HB.COURT = (function () {
     // NAV: court slab + net + board footprints blocked; apron walkable (§5)
     var nav = HB.CORE.nav;
     nav.rect(-12.5, -6.0, 12.5, 6.0, true);                    // slab (players use exact coords)
-    nav.rect(13.5, -7.0, 14.3, 7.0, true);                     // board row E
-    nav.rect(-14.3, -7.0, -13.5, 7.0, true);                   // board row W
+    nav.rect(13.5, -6.9, 14.3, 6.9, true);                     // board row E
+    nav.rect(-14.3, -6.9, -13.5, 6.9, true);                   // board row W
 
     HB.CORE.task(function* () {
       while (true) { yield HB.wait(0.25); fadeMarks(0.25); }

@@ -15,12 +15,25 @@ HB.CORE.nav = (function () {
     if (!inGrid(c.cx, c.cz)) return;
     cells[idx(c.cx, c.cz)] = blocked ? 1 : 0;
   }
-  function rect(x0, z0, x1, z1, blocked) {
+  var writers = [];
+  function rect(x0, z0, x1, z1, blocked, tag) {
     var a = w2c(Math.min(x0, x1), Math.min(z0, z1));
     var b = w2c(Math.max(x0, x1), Math.max(z0, z1));
     for (var cz = Math.max(0, a.cz); cz <= Math.min(NZ - 1, b.cz); cz++)
-      for (var cx = Math.max(0, a.cx); cx <= Math.min(NX - 1, b.cx); cx++)
+      for (var cx = Math.max(0, a.cx); cx <= Math.min(NX - 1, b.cx); cx++) {
         cells[idx(cx, cz)] = blocked ? 1 : 0;
+        if (tag) (writers[idx(cx, cz)] = writers[idx(cx, cz)] || []).push(tag);
+      }
+  }
+  function who(cx, cz) { return (writers[idx(cx, cz)] || []).join('|') || (cells[idx(cx, cz)] ? 'tagless' : 'free'); }
+  var discW = [];
+  function disc(x, z, r, blocked) {
+    for (var cz = Math.floor(z - r); cz <= Math.ceil(z + r); cz++)
+      for (var cx = Math.floor(x - r); cx <= Math.ceil(x + r); cx++)
+        if (inGrid(cx, cz)) {
+          var w = c2w(cx, cz), dx = w.x - x, dz = w.z - z;
+          if (dx * dx + dz * dz <= r * r) cells[idx(cx, cz)] = blocked ? 1 : 0;
+        }
   }
   function disc(x, z, r, blocked) {
     for (var cz = Math.floor(z - r); cz <= Math.ceil(z + r); cz++)

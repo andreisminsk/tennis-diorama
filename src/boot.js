@@ -39,6 +39,16 @@ HB.CORE.boot = (function () {
       var sel = document.getElementById('surf');
       if (sel) { sel.value = ps; HB.bus.emit('surface:set', { surface: ps }); }
     }
+    // P3 default: the island is inhabited on load — officials + both players
+    // walk in from the plaza after a short beat (no click needed until P5 flow).
+    HB.PEOPLE.officials();
+    HB.CORE.task(function* () {
+      yield HB.wait(1.2, 10);
+      yield* HB.PEOPLE.walkOn([
+        { meta: HB.CFG.roster[0], side: -1, from: [-18, -12], to: [-9.2, 0.6] },
+        { meta: HB.CFG.roster[1], side: 1, from: [-18, -10.6], to: [9.2, -0.6] }
+      ]);
+    }, { name: 'boot:walkon', max: 60 });
     HB.CORE.nav.rect(-32, -20, 32, -19, true);  // island rim sanity (real layout P1b)
 
     var fmt = HB.DEBUG.params;                  // QA boot params (ARCH §14)
@@ -52,9 +62,13 @@ HB.CORE.boot = (function () {
 
   function loop() {
     raf = requestAnimationFrame(loop);
-    var dt = clock.getDelta();
-    HB.CORE.sched.step(Math.min(dt, 0.1));
-    HB.CORE.camera.update(Math.min(dt, 0.1));
+    var dt = Math.min(clock.getDelta(), 0.1);
+    HB.CORE.sched.step(dt);
+    HB.CORE.camera.update(dt);
+    if (HB.PEOPLE && HB.PEOPLE.pose) {
+      var rigs = HB.PEOPLE.actors();
+      for (var i = 0; i < rigs.length; i++) HB.PEOPLE.pose(rigs[i], dt);
+    }
     HB.CORE.pipeline.render(scene, HB.CORE.camera.object());
   }
 

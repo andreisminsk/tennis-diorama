@@ -20,6 +20,7 @@ HB.GROUNDS = (function () {
   ];
   var LAMPS = [[-19.4, 13.2], [-11.8, 16.6], [12, 13], [-12.2, 11]];
   var BEDS = [[13.8, 13.4], [16.4, 13.4], [19, 13.4]];
+  // plaza/marquee in the SW corner: z 14.4..17.4 (south stand ends z 13.8)
   var BENCHES = [];
   function bench(x, z, ry) {
     BENCHES.push({ g: new THREE.BoxGeometry(1.7, 0.1, 0.46), m: trs(x, 0.42, z, ry) });
@@ -66,8 +67,8 @@ HB.GROUNDS = (function () {
       return { g: g, color: '#b2a698' };
     }
     var items = [
-      p(2.4, 1.4, -10.6, 14.8),   // plaza ↔ apron
-      p(1.6, 1.0, -15.5, 18.05),  // plaza ↔ gates
+      p(2.0, 5.0, -13.8, 13.6),   // plaza ↔ apron (through side corridor)
+      p(1.6, 1.0, -15.5, 19.0),   // plaza ↔ gates
       p(4.2, 1.4, -18.8, 0),      // apron ↔ practice court (apron now spans x ±17)
       p(2.4, 1.4, 10.6, 14.6),    // apron ↔ garden
       p(3.2, 1.3, 13.4, 14.6)
@@ -89,22 +90,22 @@ HB.GROUNDS = (function () {
     return t;
   }
 
-  function plaza() { // south-west (ARCH §5)
+  function plaza() { // south-west, behind the south stand (z > 13.8 in rotated layout)
     var pg = new THREE.CircleGeometry(1, 40);
-    pg.scale(4.0, 2.6, 1); pg.rotateX(-Math.PI / 2); pg.translate(-13.8, 0.02, 15.4);
+    pg.scale(4.0, 2.6, 1); pg.rotateX(-Math.PI / 2); pg.translate(-13.8, 0.02, 16.6);
     G.add(new THREE.Mesh(pg, new THREE.MeshLambertMaterial({ color: '#cfc5b4' })));
     // marquee
     var items = [];
-    [[-2.4, -1.2], [2.4, -1.2], [-2.4, 1.2], [2.4, 1.2]].forEach(function (c) {
+    [[-2.4, -1.5], [2.4, -1.5], [-2.4, 1.5], [2.4, 1.5]].forEach(function (c) {
       items.push({ g: new THREE.CylinderGeometry(0.1, 0.13, 3.0, 8),
-        m: tx(-13.6 + c[0], 1.5, 14.6 + c[1]), color: '#85613f' });
+        m: tx(-13.6 + c[0], 1.5, 15.9 + c[1]), color: '#85613f' });
     });
-    items.push({ g: new THREE.BoxGeometry(5.6, 0.2, 3.2),
-      m: tx(-13.6, 3.05, 14.6), color: '#6b4a2f' });
+    items.push({ g: new THREE.BoxGeometry(5.6, 0.2, 3.4),
+      m: tx(-13.6, 3.05, 15.9), color: '#6b4a2f' });
     G.add(new THREE.Mesh(U.mergeGeoms(items), vcMat()));
     var bn = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 1.0),
       new THREE.MeshBasicMaterial({ map: bannerTex('HOLLYBROOK OPEN', 'SINGLES FINAL') }));
-    bn.position.set(-13.6, 2.35, 15.9);
+    bn.position.set(-13.6, 2.35, 17.2);
     G.add(bn);
     // gates at the island rim
     var gi = [
@@ -113,7 +114,7 @@ HB.GROUNDS = (function () {
       { g: new THREE.BoxGeometry(3.1, 0.34, 0.5), m: tx(-15.5, 2.5, 18.3), color: '#7d7469' }
     ];
     G.add(new THREE.Mesh(U.mergeGeoms(gi), vcMat()));
-    bench(-15.6, 14.6, Math.PI / 2 + 0.2); bench(-11.6, 13.6, -0.9); bench(-13.9, 17.2, 0.1);
+    bench(-17.6, 14.9, Math.PI / 2 + 0.2); bench(-11.2, 14.2, -1.1); bench(-9.9, 17.6, 0.2);
   }
 
   function garden() { // south-east
@@ -192,14 +193,14 @@ HB.GROUNDS = (function () {
   function navBlocks() {
     var n = HB.CORE.nav;
     n.rect(-29.2, -9.5, -20.4, 9.5, true);       // practice slab (moved west)
-    n.rect(-16.2, 13.2, -11.0, 16.0, true);      // marquee
+    n.rect(-18.6, 14.2, -13.4, 17.2, true);      // marquee (SW, clear of south stand z 13.8)
     n.rect(-17.2, 18.0, -13.8, 18.6, true);      // gates
     BEDS.forEach(function (b) { n.rect(b[0] - 1.1, b[1] - 0.5, b[0] + 1.1, b[1] + 0.5, true); });
     TREES.forEach(function (T) { n.disc(T[0], T[1], 0.8, true); });
     LAMPS.forEach(function (L) { n.disc(L[0], L[1], 0.3, true); });
     HB.CFG.masts.forEach(function (M) { n.disc(M[0], M[1], 0.55, true); });
     [
-      [-15.6, 14.6], [-11.6, 13.6], [-13.9, 17.2], [14.2, 16.9], [18.6, 16.7]
+      [-17.6, 14.9], [-11.2, 14.2], [-9.9, 17.6], [14.2, 16.9], [18.6, 16.7]
     ].forEach(function (b) { n.rect(b[0] - 0.95, b[1] - 0.4, b[0] + 0.95, b[1] + 0.4, true); });
   }
 
