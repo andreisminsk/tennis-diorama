@@ -39,16 +39,20 @@ HB.CORE.boot = (function () {
       var sel = document.getElementById('surf');
       if (sel) { sel.value = ps; HB.bus.emit('surface:set', { surface: ps }); }
     }
-    // P3 default: the island is inhabited on load — officials + both players
-    // walk in from the plaza after a short beat (no click needed until P5 flow).
+    // P3 default: the island is inhabited on load — officials + players idle in
+    // their pre-match spots (no walking detours at boot; walk-on is FLOW's P5 job).
     HB.PEOPLE.officials();
+    HB.PEOPLE.courtActor(HB.CFG.roster[0], -1);
+    HB.PEOPLE.courtActor(HB.CFG.roster[1], 1);
+    // a single short ambient stroll so the island feels alive (one line judge)
+    var ljs = null;
     HB.CORE.task(function* () {
-      yield HB.wait(1.2, 10);
-      yield* HB.PEOPLE.walkOn([
-        { meta: HB.CFG.roster[0], side: -1, from: [-18, -12], to: [-13.0, 0.6] },
-        { meta: HB.CFG.roster[1], side: 1, from: [-18, -10.6], to: [13.0, -0.6] }
+      yield HB.wait(6, 12);
+      var bench = HB.CORE.nav.path(2.5, 7.2, -10.5, 7.2);
+      if (bench && bench.length > 2) yield* HB.PEOPLE.walkOn([
+        { meta: HB.CFG.roster[3], side: 1, from: [2.5, 7.2], to: [-10.5, 7.2] }
       ]);
-    }, { name: 'boot:walkon', max: 60 });
+    }, { name: 'ambient:stroll', max: 40 });
     HB.CORE.nav.rect(-32, -20, 32, -19, true);  // island rim sanity (real layout P1b)
 
     var fmt = HB.DEBUG.params;                  // QA boot params (ARCH §14)

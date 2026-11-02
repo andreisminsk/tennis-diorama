@@ -138,8 +138,8 @@ HB.PEOPLE = (function () {
       hand: playerMeta.hand, scale: playerMeta.sex === 'W' ? 0.93 : 1.0
     };
     var rig = makeRig(opts);
-    rig.position.set(side * (11.885 - 3), 0, (side < 0 ? 1 : -1) * 0.5);
-    rig.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;  // face net (x=0)
+    rig.position.set(side * 13.0, 0, (side < 0 ? 1 : -1) * 0.6);  // behind baseline (x=±11.885)
+    rig.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;      // face net (x=0)
     HB.CORE.scene.add(rig);
     actors.push(rig);
     return rig;
