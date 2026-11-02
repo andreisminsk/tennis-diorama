@@ -77,9 +77,39 @@ are QA shortcuts only — the real transitions always live in FLOW, and P5 prove
    (physics R unchanged). DRAW CALLS total 133 (87 = rig parts at root): static
    budget holds; rig compression at P9. LESSON: judge thin court lines/net only
    from perpendicular (E/W) view — south view foreshortens both to slivers.]
-## NEXT — P5: flow.js (walk-on→toss→warm-up→points→changeovers→tb→trophy),
-  generator-coroutine + watchdogs, then QA matrix 3×4 (P5 gate); P6 rally AI on
-  court + coach; P7 audio; P8 integration; P9 perf.
+## P5 — Match flow — ~90% DONE (engine suite green; 2 live matches to trophy; remainder listed)
+  [STATE 2026-11-02 late (safe to restart session from here):
+   - flow.js (~393 lines): pure scoring engine + on-court coroutine chain.
+     Points = sched tasks (flow:point, WD 25 s); serve fault/let logic (service-box
+     legality by bounce telemetry) → real-KIN rallies w/ RALLY error model →
+     bounce-2 verdict + line calls → point:end → scorePoint → next-point chain →
+     handshake → trophy (CROWD confetti). UI: scoreboard (server dot, pts/games/
+     sets), feed (cap 60), match-centre stats; ui:newmatch → FLOW w/ roster dedup.
+   - SCORE ENGINE SUITE: tools/score-test.js → 14/14 PASS (node, vm-context,
+     loads cfg/util/core-bus/flow). CAUGHT 2 REAL ENGINE BUGS (both fixed):
+     (a) FAST4 tie-break must be TO 5 (was 7); (b) set-over rule needed game
+     margin: "g[w]>TBAT || g[w]-g[other]>=2" — 6-5 previously ended sets, 4-3
+     FAST4 didn't. Also verifies deuce/AD, win-by-2 tb, super-tb 10, tb server.
+   - LIVE E2E at ?speed=8: SET/hard → trophy (0 errs) ✓; SET/clay → trophy ✓;
+     SHORT/grass last seen 2-0 games live, 0 errs, ~40 s sched/game.
+   - FIXED en route: `var cur` lost in rewrite (strict crash); ptsRaw clamp@4 →
+     every deuce game looped forever (10-min live freeze) → unbounded counters;
+     scorePoint matchOver not propagated to M.matchOver (match ran past set 3);
+     ?speed= boot param was ignored (QA pace); qaMatch/?qa=wd hooks added to boot.
+   - PEOPLE: clearCourtActors() added; FLOW clearRigs prunes actors registry.
+   - NODE TOOLS: tools/calib.js (P4b), tools/score-test.js (P5 engine suite).
+     RUN NODE VIA py_compile TOOL (subprocess) — plain RUN repeats hit loop-guard.
+   P5 REMAINING (finish these, then mark ✅ DONE with qa/p5/):
+     1. Confirm FAST4/grass completes to trophy (?qa=match&fmt=short&surf=grass&speed=8).
+     2. One bo3 on-court smoke (any surface) → 2 sets or super-tb → trophy.
+     3. ?qa=wd watchdog proof: forced stall → point resumes, feed shows watchdog.
+     4. Feed assert: no duplicate consecutive score lines over a full match.
+     5. Optional scoreboard crops (3 formats) — skip if slow, note PLAN.
+   KNOWN COSTLY: walk-on ~26 s sched (long A* paths) — acceptable; consider
+     direct placement when a match starts at P8 polish.]
+## NEXT — P5 remainder above → P6 (coach tactic/aim/serve-dir UI enable + commentary,
+  aim-click raycast) → P7 audio (audio.js, gesture-gated) → P8 integration+offline QA
+  → P9 perf (draw calls, phone layout). Coach hooks already in FLOW (FLOW.coach).
 =======
 ## P4 — Ball & kinematics (gate: serve→fly→bounce→reset believable & calibrated)
 - court.js: repaintable court (4 surface variants via palette paint ops), lines,

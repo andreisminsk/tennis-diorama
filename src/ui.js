@@ -63,12 +63,84 @@ HB.UI = (function () {
         });
       });
 
-    // new match (no-op until FLOW P5): emit and log to feed
+    // new match → FLOW.startMatch with picked roster + format
     var btnNew = $('btnNew');
     if (btnNew) btnNew.addEventListener('click', function () {
       HB.bus.emit('ui:newmatch', { fmt: $('fmt') && $('fmt').value,
         p0: p0 && p0.value, p1: p1 && p1.value });
     });
+
+    // ---- P5: feed + scoreboard + match centre ----
+    var feed = $('feed'), sb = $('scoreboard'), stats = $('stats');
+    function pushLog(t, cls) {
+      if (!feed) return;
+      var li = document.createElement('li');
+      if (/^OUT|Fault|Double|Let|Watchdog/i.test(t)) li.className = 'warn';
+      if (cls) li.className = cls;
+      li.innerHTML = '<span class="t">' + sbClock() + '</span>' + t;
+      feed.insertBefore(li, feed.firstChild);
+      while (feed.children.length > 60) feed.removeChild(feed.lastChild);
+    }
+    function sbClock() {
+      var s = Math.floor(HB.CORE.sched.now() % 86400);
+      var m = Math.floor(s / 60) % 60, h = Math.floor(s / 3600) % 24;
+      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    }
+    function byId(v) {
+      for (var i = 0; i < HB.CFG.roster.length; i++)
+        if (HB.CFG.roster[i].id === v) return HB.CFG.roster[i];
+      return null;
+    }
+    function renderSB(M) {
+      if (!sb || !M) return;
+      sb.classList.add('on');
+      var t = HB.FLOW.scoreText(M);
+      for (var i = 0; i < 2; i++) {
+        sb.querySelector('[data-sb="name' + i + '"]').textContent = M.players[i].meta.name.split(' ').pop();
+        sb.querySelector('[data-sb="srv' + i + '"]').textContent =
+          (M.state === 'live' && M.server === i) ? '●' : '';
+        sb.querySelector('[data-sb="ptr' + i + '"]').textContent = M.score.tb ? M.score.tb.pts[i] : t.ptr.split('–')[i];
+      }
+      sb.querySelector('[data-sb="games"]').textContent = t.games;
+      sb.querySelector('[data-sb="sets"]').textContent = M.score.sets.join('–');
+    }
+    HB.bus.on('ui:log', function (d) { pushLog(d.t, d.cls); });
+    HB.bus.on('call:umpire', function (d) { pushLog('⟡ ' + d.text); });
+    HB.bus.on('call:line', function (d) { pushLog('OUT — ' + d.loc.map(function (v) { return v.toFixed(1); }).join(', ')); });
+    HB.bus.on('match:watchdog', function (d) {
+      pushLog('Watchdog — ' + d.task + ' stalled ' + d.blocked + ' s; force-resumed.', 'warn');
+    });
+    HB.bus.on('match:new', function (d) {
+      if (stats) stats.textContent = 'New ' + d.fmt + ' match — walk-on.';
+    });
+    HB.bus.on('match:phase', function (d) { if (d.phase === 'live' && curM()) renderSB(curM()); });
+    HB.bus.on('point:end', function (d) {
+      var M = curM();
+      if (!M) return;
+      renderSB(M);
+      var names = [M.players[0].meta.name.split(' ').pop(), M.players[1].meta.name.split(' ').pop()];
+      pushLog(names[d.winner] + ' wins the point (' + d.how + (d.shots ? ', ' + d.shots + ' shots' : '') + ').');
+      if (stats) {
+        var S = M.stats, tot = S.rallyShots.length || 1, sum = 0;
+        S.rallyShots.forEach(function (v) { sum += v; });
+        stats.innerHTML =
+          '<b>' + M.players[0].meta.name + '</b> vs <b>' + M.players[1].meta.name + '</b><br>' +
+          'Sets ' + M.score.sets[0] + '–' + M.score.sets[1] +
+          ' · Games ' + M.score.gamesNow[0] + '–' + M.score.gamesNow[1] + '<br>' +
+          '1st in ' + (S.firstTot ? Math.round(100 * S.firstIn / S.firstTot) + '%' : '—') +
+          ' · Aces ' + S.aces + ' · DF ' + S.dfs + '<br>' +
+          'Mean rally ' + (sum / tot).toFixed(1) +
+          ' · Fastest ' + (S.fastest.kph || '—') + ' kph' +
+          (S.fastest.who >= 0 ? ' (' + M.players[S.fastest.who].meta.name.split(' ').pop() + ')' : '');
+      }
+    });
+    HB.bus.on('match:end', function (d) {
+      if (stats && curM()) {
+        var M = curM();
+        stats.innerHTML += '<br><b>CHAMPION: ' + M.players[d.winner].meta.name + '</b>';
+      }
+    });
+    function curM() { return HB.FLOW.current(); }
 
     HB.bus.emit('ui:ready', {});
   }

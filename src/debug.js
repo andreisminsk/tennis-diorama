@@ -71,4 +71,10 @@ HB.DEBUG.runCalib = function (n) {
   return res;
 };
 
+// qa=match&fmt=&surf=&n= — unattended matches; ?qa=wd — forced stall (P5 QA).
+HB.DEBUG.qaMatch = function (d) {
+  var fmt = HB.DEBUG.params.fmt || 'set';
+  var surf = HB.DEBUG.params.surf || HB.CFG.current.surface;
+  HB.bus.emit('debug:runmatch', { fmt: fmt, surf: surf, done: d || null });
+};
 HB.reg('debug', HB.DEBUG);

@@ -61,7 +61,15 @@ HB.CORE.boot = (function () {
     var fmt = HB.DEBUG.params;                  // QA boot params (ARCH §14)
     if (fmt.ff) HB.CORE.sched.ff(parseFloat(fmt.ff) || 0);
     if (fmt.pix) HB.CORE.pipeline.setPixelSize(parseInt(fmt.pix, 10) || 2);
+    if (fmt.speed) HB.CORE.speed = parseFloat(fmt.speed) || 1;
     if (fmt.qa === 'calib') HB.DEBUG.runCalib(parseInt(fmt.n, 10) || 2000);
+    if (fmt.qa === 'match') HB.DEBUG.qaMatch();
+    if (fmt.qa === 'wd') { // watchdog proof: stall the scheduler's point task
+      HB.DEBUG.qaMatch(function () { console.log('qa=wd match done'); });
+      var W0 = HB.CORE.sched.wd.point;
+      HB.CORE.sched.wd.point = 3;      // 3 s stall ceiling for the test
+      setTimeout(function () { HB.CORE.sched.wd.point = W0; }, 2000);
+    }
 
     clock = new THREE.Clock();
     loop();

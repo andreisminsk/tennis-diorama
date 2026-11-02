@@ -56,7 +56,7 @@ HB.CLUB = (function () {
     place(stand(27, 4, 20), 0, 8.6, 0, 0, 0);               // south sideline (4 rows: plaza behind)
     place(stand(27, 8, 22), 0, -8.6, Math.PI, 2, Math.PI);  // north sideline (LED above)
     place(stand(16, 4, 12), 16.9, 0, Math.PI / 2, 1, Math.PI / 2);   // east baseline
-    place(stand(14, 4, 10), -16.4, 0, -Math.PI / 2, 3, -Math.PI / 2); // west baseline (shorter: plaza passage on its south)
+    place(stand(14, 4, 10), -16.9, 0, -Math.PI / 2, 3, -Math.PI / 2); // west baseline — mirrored to east (−16.9: board row ±16.5 clears the front lip)
   }
 
   // ---- clubhouse (north) ----

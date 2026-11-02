@@ -131,11 +131,11 @@ HB.COURT = (function () {
     // court): 3 boards per end spanning z −6.9..6.9, facing the court. No boards
     // along the sidelines (players' run-off stays clean).
     var specs = [];   // {x, z, rotY, faceX}
-    [13.9, -13.9].forEach(function (ex) {
-      var face = (ex > 0) ? -1 : 1;                 // face toward court
+    // Rows flush against the E/W baseline stands (front row x=±16.7): banners read
+    // as part of the stand, not as floating strips in the players' run-off.
+    [16.5, -16.5].forEach(function (ex) {
+      var face = (ex > 0) ? -1 : 1;                 // face toward court (E −X / W +X)
       [-4.6, 0, 4.6].forEach(function (z2) {
-        // rotY = face*+π/2 points the plane normal TOWARD the court (east −X, west
-        // +X); the old `face * -π/2` faced both rows outward (mirrored text bug).
         specs.push({ x: ex, z: z2, rotY: face * Math.PI / 2, faceX: face });
       });
     });
@@ -224,8 +224,8 @@ HB.COURT = (function () {
     // NAV: court slab + net + board footprints blocked; apron walkable (§5)
     var nav = HB.CORE.nav;
     nav.rect(-12.5, -6.0, 12.5, 6.0, true);                    // slab (players use exact coords)
-    nav.rect(13.5, -6.9, 14.3, 6.9, true);                     // board row E
-    nav.rect(-14.3, -6.9, -13.5, 6.9, true);                   // board row W
+    nav.rect(16.4, -6.9, 16.7, 6.9, true);                     // board row E (at stand)
+    nav.rect(-16.7, -6.9, -16.4, 6.9, true);                   // board row W (at stand)
 
     HB.CORE.task(function* () {
       while (true) { yield HB.wait(0.25); fadeMarks(0.25); }

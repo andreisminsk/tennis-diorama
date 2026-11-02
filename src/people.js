@@ -98,7 +98,22 @@ HB.PEOPLE = (function () {
 
   // ---------- animation (cheap procedural, called from actor coroutines + render) ----------
   function pose(rig, dt) {
-    var r = rig.__rig, t = r.t += dt, k = r.state;
+    var r = rig.__rig;
+    if (r.moveTo) {                                          // glide: stride to target
+      var dx = r.moveTo.x - rig.position.x, dz = r.moveTo.z - rig.position.z;
+      var d = Math.sqrt(dx * dx + dz * dz);
+      if (d < 0.06) {
+        r.moveTo = null;
+        if (r.state === 'walk') r.state = 'idle';
+      } else {
+        var st = Math.min(d, 3.2 * dt);
+        rig.position.x += dx / d * st;
+        rig.position.z += dz / d * st;
+        if (r.state !== 'walk') r.state = 'walk';
+        r.phase += dt * 2.0;                                 // stride phase advance
+      }
+    }
+    var t = r.t += dt, k = r.state;
     var A = r.parts, w = r.phase;
     function sway(p, f, amp, ph) { p.rotation.x = Math.sin(t * f + ph) * amp; }
     if (k === 'walk') {
@@ -229,9 +244,16 @@ HB.PEOPLE = (function () {
     }
   });
 
+  function clearCourtActors() {                              // FLOW: remove player rigs
+    actors.forEach(function (r) {
+      if (r.parent) r.parent.remove(r);
+    });
+    actors.length = 0;
+  }
+
   var api = { ready: true, makeRig: makeRig, pose: pose, setState: setState,
     courtActor: courtActor, officials: officials, walkOn: walkOn,
-    actors: function () { return actors; } };
+    actors: function () { return actors; }, clearCourtActors: clearCourtActors };
   HB.reg('people', api);
   return api;
 })();
