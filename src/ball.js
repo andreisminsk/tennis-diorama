@@ -12,12 +12,15 @@ HB.BALL = (function () {
     return b;
   }
 
+  var VISR = 0.05;   // visual radius: physics keeps R=0.033 (drag consts), but a
+                     // 3.3 cm ball is a 1-2px dot at pixelSize 2 and the outline
+                     // pass swallowed it (same failure as P3b confetti) → 5 cm.
   function build(scene) {
-    var g = new THREE.SphereGeometry(R, 10, 8);
+    var g = new THREE.SphereGeometry(VISR, 10, 8);
     mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: '#d7e34c' }));
     mesh.visible = false;
     scene.add(mesh);
-    var sg = new THREE.CircleGeometry(R * 2.4, 10); sg.rotateX(-Math.PI / 2);
+    var sg = new THREE.CircleGeometry(VISR * 2.2, 10); sg.rotateX(-Math.PI / 2);
     shadow = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: '#07080a',
       transparent: true, opacity: 0.24, depthWrite: false }));
     shadow.visible = false;
@@ -82,8 +85,11 @@ HB.BALL = (function () {
         }
       }
     }
-    // ground
-    if (p.y <= 0.036 && v.y < 0) {
+    // ground — only inside the island ellipse; off the edge the ball falls
+    // into the void (reset/watchdog handles recovery, ARCH §11 ball-lost).
+    var onIsland = (p.x * p.x) / (HB.CFG.island.rx * HB.CFG.island.rx) +
+                   (p.z * p.z) / (HB.CFG.island.rz * HB.CFG.island.rz) <= 1;
+    if (p.y <= 0.036 && v.y < 0 && onIsland) {
       var SP = surfaceParams();
       p.y = 0.036;
       var vin = v.y;
@@ -114,7 +120,8 @@ HB.BALL = (function () {
       dt -= h; acc += h;
       if (st.netHit) { st.netHit = false; }
     }
-    if (st.p.length() > 200 || Date.now() - (st.tStart || 0) > 12000) reset(true);
+    if (st.p.length() > 200 || st.p.y < -20 ||
+        Date.now() - (st.tStart || 0) > 12000) reset(true);
     mesh.position.copy(st.p);
     shadow.position.set(st.p.x, 0.041, st.p.z);
     var sc = HB.UTIL.clamp(1 - st.p.y / 9, 0.35, 1);

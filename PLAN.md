@@ -63,7 +63,23 @@ are QA shortcuts only — the real transitions always live in FLOW, and P5 prove
    - BROWSER CACHE: after rebuild, restart http.server (304s serve stale HTML);
      probe typeof HB.KIN.step etc. before trusting in-page results.
    - Compound browser evaluate blocks get dropped after warnings — ONE action/message.]
-## NEXT — P4c gate + P5: wire real ball into on-court serve/rally visuals; then FLOW.
+## P4 — Ball & kinematics — ✅ DONE (qa/p4/)
+  [P4b CALIBRATION (2026-11-02): node harness tools/calib.js + in-page ?qa=calib
+   (HB.DEBUG.runCalib wired in boot when fmt.qa==='calib'). n=6000: all surfaces
+   1st-serve 62.4–63.6, ace 4.5–5.2, DF 2.5–3.0, rally 5.28–5.89 — IN BAND, clay
+   longest/carpet shortest ✓. ROOT CAUSE of earlier impossible stats: rng double-wrap
+   U.rng(gen)() coerced function seed → seed 0 constant rolls (see rally.js roll()).
+   P4a VISUAL GATE (qa/p4/): serve arcs accurate 0.1–0.3 m; 28-regime dt sweep +
+   25 s live run 0 NaN; ball-lost watchdog ✓; island-edge bounce fixed (ball falls
+   into void + resets, y<−20 guard); marks visible; FIXED: sponsor boards faced
+   outward (rotY sign) → mirrored text; centre service line far half vanished to
+   z-fight → lines lifted +6 mm; ball was 1-2px black dot → VISR 0.05 visual radius
+   (physics R unchanged). DRAW CALLS total 133 (87 = rig parts at root): static
+   budget holds; rig compression at P9. LESSON: judge thin court lines/net only
+   from perpendicular (E/W) view — south view foreshortens both to slivers.]
+## NEXT — P5: flow.js (walk-on→toss→warm-up→points→changeovers→tb→trophy),
+  generator-coroutine + watchdogs, then QA matrix 3×4 (P5 gate); P6 rally AI on
+  court + coach; P7 audio; P8 integration; P9 perf.
 =======
 ## P4 — Ball & kinematics (gate: serve→fly→bounce→reset believable & calibrated)
 - court.js: repaintable court (4 surface variants via palette paint ops), lines,

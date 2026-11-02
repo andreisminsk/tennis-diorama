@@ -28,8 +28,11 @@ HB.COURT = (function () {
 
   function buildLines() {                     // long axis along X
     var U = HB.UTIL, h = LW / 2, items = [];
+    // Lines sit 6 mm ABOVE the slab top (not coplanar): 16-bit depth otherwise
+    // z-fights at distance and the far half of the centre line vanished (P4 QA).
+    var LGY = GY + 0.006;
     function bx(szX, szZ, x, z) {
-      items.push({ g: new THREE.BoxGeometry(szX, LH, szZ), m: mp(0, x, GY + LH / 2, z) });
+      items.push({ g: new THREE.BoxGeometry(szX, LH, szZ), m: mp(0, x, LGY + LH / 2, z) });
     }
     bx(LW, 2 * (C.dX + h),  C.halfW, 0);            // baselines (x=±11.885)
     bx(LW, 2 * (C.dX + h), -C.halfW, 0);

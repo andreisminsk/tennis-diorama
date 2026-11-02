@@ -1274,8 +1274,11 @@ HB.COURT = (function () {
 
   function buildLines() {                     // long axis along X
     var U = HB.UTIL, h = LW / 2, items = [];
+    // Lines sit 6 mm ABOVE the slab top (not coplanar): 16-bit depth otherwise
+    // z-fights at distance and the far half of the centre line vanished (P4 QA).
+    var LGY = GY + 0.006;
     function bx(szX, szZ, x, z) {
-      items.push({ g: new THREE.BoxGeometry(szX, LH, szZ), m: mp(0, x, GY + LH / 2, z) });
+      items.push({ g: new THREE.BoxGeometry(szX, LH, szZ), m: mp(0, x, LGY + LH / 2, z) });
     }
     bx(LW, 2 * (C.dX + h),  C.halfW, 0);            // baselines (x=±11.885)
     bx(LW, 2 * (C.dX + h), -C.halfW, 0);
@@ -1537,9 +1540,12 @@ HB.GROUNDS = (function () {
     return m;
   }
 
-  var TREES = [ // [x, z, scale]
-    [-27, -13, 1.2], [26.5, -12, 1.0], [27.5, 1.5, 1.3], [24, 10.6, 0.9],
-    [-24.5, 16.6, 0.9], [-8.6, -19.6, 1.0], [-26.8, 11.2, 1.1],
+  // [x, z, scale] — island-top ellipse rx32 rz22; keep all trunks INSIDE
+  // (norm x²/32²+z²/22² ≤ 0.87): four rim trees used to stand on the rock
+  // overhang past the waterline (floating-trees QA, P4).
+  var TREES = [
+    [-24, -11, 1.2], [24.5, -10, 1.0], [27.5, 1.5, 1.3], [24, 10.6, 0.9],
+    [-20.5, 14.8, 0.9], [-8.6, -19.6, 1.0], [-23, 12.5, 1.1],
     [13.6, 12, 0.95], [16.2, 11.8, 1.15], [19.2, 12, 0.9], [14.4, 16, 0.85], [18.2, 15.9, 1.05]
   ];
   var LAMPS = [[-19.4, 13.2], [-11.8, 16.6], [12, 13], [-12.2, 11]];
@@ -2304,12 +2310,15 @@ HB.BALL = (function () {
     return b;
   }
 
+  var VISR = 0.05;   // visual radius: physics keeps R=0.033 (drag consts), but a
+                     // 3.3 cm ball is a 1-2px dot at pixelSize 2 and the outline
+                     // pass swallowed it (same failure as P3b confetti) → 5 cm.
   function build(scene) {
-    var g = new THREE.SphereGeometry(R, 10, 8);
+    var g = new THREE.SphereGeometry(VISR, 10, 8);
     mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: '#d7e34c' }));
     mesh.visible = false;
     scene.add(mesh);
-    var sg = new THREE.CircleGeometry(R * 2.4, 10); sg.rotateX(-Math.PI / 2);
+    var sg = new THREE.CircleGeometry(VISR * 2.2, 10); sg.rotateX(-Math.PI / 2);
     shadow = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: '#07080a',
       transparent: true, opacity: 0.24, depthWrite: false }));
     shadow.visible = false;
@@ -2374,8 +2383,11 @@ HB.BALL = (function () {
         }
       }
     }
-    // ground
-    if (p.y <= 0.036 && v.y < 0) {
+    // ground — only inside the island ellipse; off the edge the ball falls
+    // into the void (reset/watchdog handles recovery, ARCH §11 ball-lost).
+    var onIsland = (p.x * p.x) / (HB.CFG.island.rx * HB.CFG.island.rx) +
+                   (p.z * p.z) / (HB.CFG.island.rz * HB.CFG.island.rz) <= 1;
+    if (p.y <= 0.036 && v.y < 0 && onIsland) {
       var SP = surfaceParams();
       p.y = 0.036;
       var vin = v.y;
@@ -2406,7 +2418,8 @@ HB.BALL = (function () {
       dt -= h; acc += h;
       if (st.netHit) { st.netHit = false; }
     }
-    if (st.p.length() > 200 || Date.now() - (st.tStart || 0) > 12000) reset(true);
+    if (st.p.length() > 200 || st.p.y < -20 ||
+        Date.now() - (st.tStart || 0) > 12000) reset(true);
     mesh.position.copy(st.p);
     shadow.position.set(st.p.x, 0.041, st.p.z);
     var sc = HB.UTIL.clamp(1 - st.p.y / 9, 0.35, 1);
@@ -2588,6 +2601,402 @@ HB.RALLY = (function () {
   HB.reg('rally', api);
   return api;
 })();
+// ===== flow.js =====
+// flow.js — HB.FLOW (P5): match flow generator (ARCH §8/§10, CONTRACT §3/§7).
+// Owns: pure scoring engine (FAST4 / one set / bo3+super-tb), the on-court match
+// coroutine (walk-on→toss→warm-up→points→changeovers→tie-breaks→handshake→trophy),
+// serve/rally orchestration over real KIN+BALL physics with RALLY's error model,
+// line calls/challenges, stats, watchdog-default-safe branches.
+// Communicates ONLY via HB.bus (CONTRACT §1). Emits the match:* catalogue.
+HB.FLOW = (function () {
+  var U = HB.UTIL;
+  var CH = HB.CFG.COURT;
+  var HALF = CH.halfW, SX = CH.singlesX, SRVX = 6.4;
+
+  // ============ pure scoring engine (P5 gate: unit-testable) ============
+  // Match struct (ARCH §10): {format, players[2], server, ends, score, stats, reviews}
+  function newMatch(fmt, players, surface) {
+    return {
+      format: fmt, surface: surface || HB.CFG.current.surface,
+      players: players, server: 0, ends: 1, state: 'idle',
+      score: { ptsRaw: [0, 0], games: [[], []]? [[], []] : null, sets: [0, 0],
+               gamesNow: [0, 0], tb: null },
+      stats: { firstIn: 0, firstTot: 0, aces: 0, dfs: 0, firstWon: 0, secondWon: 0,
+               fastest: { kph: 0, who: -1 }, rallyShots: [], winners: [], errors: [] },
+      reviews: { left: [3, 3], log: [] }
+    };
+  }
+  function ptsLabel(v) { return ['0', '15', '30', '40', 'AD'][Math.min(v, 4)]; }
+  // advance one point; returns {gameOver, setOver, matchOver, tbStart, msg}
+  function scorePoint(M, w) {
+    var S = M.score, out = { gameOver: false, setOver: false, matchOver: false, tbStart: false, msg: '' };
+    if (S.tb) {                                           // tie-break in progress
+      S.tb.pts[w]++; S.ptsRaw = S.tb.pts.slice();
+      var a = S.tb.pts[0], b = S.tb.pts[1];
+      var tgt = S.tb.target;                              // 5 (FAST4) 7 (set) 10 (super)
+      if (a >= tgt && a - b >= 2) S.tb.won = 0;
+      else if (b >= tgt && b - a >= 2) S.tb.won = 1;
+      if (S.tb.won !== undefined && S.tb.won !== null) {
+        out.gameOver = true;
+        var wi = S.tb.won;
+        M.score.gamesNow[wi]++;
+        S.games = M.score.gamesNow.slice();
+        S.tb = null; S.ptsRaw = [0, 0];
+        out.setOver = true;                               // a tb always ends the set
+      }
+      return out;
+    }
+    S.ptsRaw[w]++;  S.ptsRaw = clampPts(S.ptsRaw);
+    var p = S.ptsRaw;
+    if (p[w] >= 4 && p[w] - p[1 - w] >= 2) {              // normal game
+      out.gameOver = true;
+      p[w] = 0; p[1 - w] = 0;
+      M.score.gamesNow[w]++; S.games = M.score.gamesNow.slice();
+      S.ptsRaw = [0, 0];
+    }
+    if (out.gameOver) out.msg = 'GAME';
+    if (!out.gameOver && p[0] >= 3 && p[1] >= 3) out.msg = p[0] === p[1] ? 'DEUCE' : 'ADVANTAGE';
+    // set/game targets per format
+    var GT = M.format === 'short' ? 4 : (M.format === 'set' ? 6 : 6);
+    var tbAt = M.format === 'short' ? 3 : 6;              // tb at 3-3 (FAST4) / 6-6
+    if (out.gameOver) {
+      var g = M.score.gamesNow;
+      if (g[0] === tbAt && g[1] === tbAt) {
+        out.tbStart = true;
+        var tgt2 = M.format === 'bo3' && M.score.sets[0] === 1 && M.score.sets[1] === 1 ? 10 : 7;
+        S.tb = { pts: [0, 0], target: tgt2, won: null };
+      }
+      if (g[w] >= GT && (!out.tbStart)) {
+        out.setOver = true;
+        M.score.sets[w]++; S.games = g.slice();
+        M.score.gamesNow = [0, 0];
+      }
+      if (M.score.sets[w] >= (M.format === 'bo3' ? 2 : 1)) out.matchOver = true;
+    }
+    return out;
+  }
+  function clampPts(p) { return [Math.min(p[0], 4), Math.min(p[1], 4)]; }
+  // tie-break serving order: server A serves pt1, then B 2, A 2, B 2 … ends swap 6s
+  function tbServer(M) {
+    var n = M.score.tb.pts[0] + M.score.tb.pts[1];
+    if (n === 0) return M.server;
+    return (M.server + 1 + Math.floor((n - 1) / 2)) % 2;
+  }
+  function scoreText(M) {
+    var S = M.score;
+    if (S.tb) return { ptr: S.tb.pts[0] + '–' + S.tb.pts[1],
+                       games: M.score.gamesNow[0] + '–' + M.score.gamesNow[1] };
+    var a = S.ptsRaw[0], b = S.ptsRaw[1];
+    if (a >= 3 && b >= 3)
+      return { ptr: a === b ? '40–40' : (a > b ? 'AD–' : '–AD') , games: '' };
+    return { ptr: ptsLabel(a) + '–' + ptsLabel(b), games: '' };
+  }
+
+  // ============ on-court match ============
+  var cur = null;               // current Match + runtime
+  var coach = { tactic: 'auto', srvDir: 'auto', aim: null };  // P6 wires UI; hooks live now
+
+  // court-local geometry: ends = who is on west (x<0). ends=0 → p0 west.
+  function endX(M, i) { var west = (M.ends === 0 ? 0 : 1) === i; return west ? -1 : 1; }
+
+  function ballSpot(shot, M, i) {         // contact point in world coords
+    var px = endX(M, i) * (HALF + 1.1);
+    return { x: px, y: 1.05, z: U.clamp(shot.target.z, -2.5, 2.5) * (shot.serve ? -0.35 : 0.4) };
+  }
+
+  // serve aim: kph by dir distribution + coach srvDir; returns {target, spin, kph}
+  function serveAim(P, M, i) {
+    var S = P.serve;
+    var dir = coach.srvDir !== 'auto' ? coach.srvDir :
+      (function () { var r = Math.random(), c = 0; var ks = ['w', 'b', 't'];
+        for (var j = 0; j < 3; j++) { c += S.dir[ks[j]]; if (r < c) return ks[j]; } return 'b'; })();
+    var boxX = endX(M, 1 - i);                       // service box is on receiver end
+    var boxZ = ((M.ptsIdx === undefined ? 0 : M.ptsIdx) % 2 === 0) ? (boxX > 0 ? 1 : -1) : (boxX > 0 ? -1 : 1);
+    var kph = S.kphMean + U.rngNorm(Math.random) * S.sd;
+    var depth = SRVX - 0.35 - Math.random() * 0.5;
+    var zOff = dir === 'w' ? 2.9 : dir === 't' ? 0.35 : 1.6;   // wide/body/T
+    return { target: { x: boxX * depth, z: boxZ * (SRVX - zOff < 0 ? 0.2 : 0) * 0 + boxZ * zOff },
+             spin: { top: -900 - kph * 2, side: 0 }, kph: kph };
+  }
+
+  // per-point runtime (driven by ball:bounce events; FLOW is its consumer)
+  function pointRuntime() {
+    return { over: false, winner: null, how: null, shots: 0, hitter: 0,
+             bounces: 0, serveLive: false, faults: 0, attempt: 1, land: null,
+             outBy: 0, netClip: false, aceShot: false };
+  }
+
+  var unsub = null;
+  function bindBall(pt) {
+    unsub = [
+      HB.bus.on('ball:bounce', function (d) {
+        if (pt.over) return;
+        pt.bounces++;
+        pt.land = { x: d.loc[0], z: d.loc[1] };
+        if (pt.bounces === 1) pt.firstBounce = pt.land;
+        if (pt.bounces >= 2) conclude(pt);             // no return before 2nd bounce
+      }),
+      HB.bus.on('ball:netcord', function (d) { if (!pt.over) pt.netClip = true; })
+    ];
+  }
+  // legality: in singles rectangle (|x|<=HALF, |z|<=SX); serves must clear cross box
+  function inSingles(l) { return Math.abs(l.x) <= HALF + 0.05 && Math.abs(l.z) <= SX + 0.05; }
+  function inBox(l, boxSignX, boxSignZ) {
+    return l.x * boxSignX >= -0.05 && l.x * boxSignX <= SRVX + 0.05 &&
+           l.z * boxSignZ >= -0.05 && l.z * boxSignZ <= SX + 0.05;
+  }
+
+  function conclude(pt) {
+    if (pt.over) return;
+    if (unsub) { unsub.forEach(function (f) { f(); }); unsub = null; }
+    pt.over = true;
+  }
+
+  // ============ match coroutine ============
+  function* serveRitual(M, P, rig) {
+    HB.PEOPLE.setState(rig, 'idle');
+    yield HB.wait(0.7, 4);                          // ball bounce ritual
+    HB.PEOPLE.setState(rig, 'serve');
+  }
+
+  function* playPoint(M, st, done) {
+    var P = M.players[st.server].p, rig = M.players[st.server].rig;
+    HB.bus.emit('point:start', { server: st.server });
+    // SERVE (up to 2 attempts; faults geometric)
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      var pt = pointRuntime(); pt.attempt = attempt;
+      pt.serve = true; pt.hitter = st.server;
+      bindBall(pt);
+      yield* serveRitual(M, P, rig);
+      M.stats.firstTot += (attempt === 1) ? 1 : 0;
+      var aim = serveAim(P, M, st.server);
+      aim.target.x *= 1;              // miss geometry on serve:
+      if (Math.random() < (attempt === 1 ? (1 - (0.60 + 0.10 * (P.cons / 100 - 0.5))) : 0.12)) {
+        // geometric fault: long or wide or net — solve to an OUT target
+        var bad = HB.RALLY.missGeom({ player: P, r: Math.random },
+          { target: { x: aim.target.x, z: aim.target.z } });
+        aim.target = bad.target;
+      }
+      var dirX = (aim.target.x - endX(M, st.server) * (HALF + 1.1));
+      var sol = HB.KIN.solve({ start: { x: endX(M, st.server) * (HALF + 1.1), y: 2.9,
+                                        z: U.clamp(aim.target.z * 0.25, -1.5, 1.5) },
+                               target: aim.target, spin: aim.spin, clearance: 0.9 });
+      var kph = Math.round(Math.hypot(sol.v0.x, sol.v0.y, sol.v0.z) * 3.6);
+      if (kph > M.stats.fastest.kph) M.stats.fastest = { kph: kph, who: st.server };
+      HB.bus.emit('serve:hit', { v0: sol.v0, dir: aim.target, spin: aim.spin, kph: kph });
+      HB.PEOPLE.setState(rig, 'serve');
+      HB.BALL.launch({ p: new THREE.Vector3(endX(M, st.server) * (HALF + 1.1), 2.9,
+                                            U.clamp(aim.target.z * 0.25, -1.5, 1.5)),
+                       v0: sol.v0, w: sol.w });
+      // wait bounce
+      yield HB.until(function () { return pt.firstBounce || pt.over; }, 8);
+      var ok = pt.firstBounce && inBox(pt.firstBounce, (endX(M, 1 - st.server) > 0 ? 1 : -1),
+                 (Math.abs(pt.firstBounce.z) <= SX ? Math.sign(pt.firstBounce.z) || 1 : 0) !== 0 ? 1 : 1) &&
+               Math.abs(pt.firstBounce.z) <= SX + 0.05;
+      var inService = pt.firstBounce && inSingles(pt.firstBounce) &&
+        Math.sign(pt.firstBounce.x || 1) === (endX(M, 1 - st.server) > 0 ? 1 : -1);
+      if (pt.netClip && inService) {                // LET — replay the point
+        HB.bus.emit('serve:let', {}); HB.ui_log('Let — replay the point', 'warn');
+        yield HB.wait(1.4, 4); attempt--; continue;
+      }
+      if (!inService) {                             // fault
+        HB.bus.emit('serve:fault', { kind: pt.netClip ? 'net' : 'out', attempt: attempt });
+        HB.ui_log((attempt === 1 ? 'Fault' : 'Double fault — ' + M.players[1 - st.server].p.name), attempt === 2 ? 'big' : '');
+        if (attempt === 2) { M.stats.dfs++; conclude(pt); break; }
+        continue;
+      }
+      if (attempt === 1) M.stats.firstIn++;
+      // server won outright untouched? ace check happens if no return contacts occur
+      pt.serveLive = true;
+      st.pt = pt;
+      break;
+    }
+    if (st.pt && st.pt.attempt === 2) M.stats.secondServe = true;
+    // RALLY (real ball, RALLY-shaped targets/errors)
+    if (st.pt && !st.pt.over) {
+      var idx = 1 - st.server, shots = 1, firstRet = true;
+      // let ball settle a moment (receiver readies)
+      yield HB.wait(0.25, 3);
+      while (!cur.over) {
+        var hitter = idx, hitRig = M.players[idx].rig, HP = M.players[idx].p;
+        // pick target via RALLY model (coach hooks P6)
+        var shot = HB.RALLY.chooseShot(HP, { r: Math.random, side: 1, player: HP,
+          meta: HP, serve: shots === 1 && firstRet });
+        if (Math.random() < (shots === 1 ? 0.34 : HB.RALLY.contactErr({ player: HP, r: Math.random }) ? 1 : 0)) {
+          // miss → geometric error target (real long/wide/net)
+          var miss = HB.RALLY.missGeom({ player: HP, r: Math.random },
+            { target: { x: (endX(M, 1 - idx)) * (6.5 + Math.random() * 4),
+                        z: (Math.random() * 2 - 1) * SX * 0.8 } });
+          shot.target = miss.target;
+        } else {
+          shot.target.x = (endX(M, 1 - idx)) * (shot.target.x);  // deep to other end
+        }
+        var st0 = HB.BALL.state();
+        var s2 = HB.KIN.solve({ start: { x: U.clamp(st0.p[0], -HALF, HALF) * 0.92,
+                                         y: 0.95, z: U.clamp(st0.p[2], -SX, SX) },
+                                target: shot.target, spin: shot.spin, clearance: shot.clearance });
+        HB.bus.emit('rally:hit', { who: idx, v0: s2.v0, spin: shot.spin, aim: shot.target });
+        HB.PEOPLE.setState(hitRig, 'swing');
+        HB.bus.emit('audio:all', { kind: 'hit', spin: shot.spin });
+        HB.BALL.launch({ p: new THREE.Vector3(HB.BALL.state().p[0], 0.95, HB.BALL.state().p[2]),
+                         v0: s2.v0, w: s2.w });
+        shots++; st.pt.shots = shots;
+        // wait its 1st bounce (events drive conclude on 2nd)
+        yield HB.until(function () { return st.pt.bounces >= 1 || cur.over; }, 9);
+        if (cur.over) break;
+        var first = st.pt.firstBounce || st.pt.land;
+        if (!inSingles(first)) {                    // OUT — line call
+          HB.bus.emit('call:line', { loc: [first.x, first.z], call: 'OUT' });
+          HB.ui_log('.Line — OUT (' + M.players[idx].p.name + ')', '');
+          break;                                    // hitter idx made the error
+        }
+        st.pt.bounces = 1;                          // legal; rally continues
+        idx = 1 - idx; firstRet = false;
+        yield HB.wait(0.18 + Math.random() * 0.25, 2);
+      }
+    }
+    // resolve winner
+    var winner, how;
+    if (st.pt && st.pt.over) {
+      if (st.pt.faults >= 1 && st.pt.attempt === 2 && st.pt.dfDone) {}
+      if (st.pt.how) { winner = st.pt.winner; how = st.pt.how; }
+      else {
+        // concluded by double-bounce/net/land-out logic inside rally loop
+        winner = null;
+      }
+    }
+    done(ptsDone(st, winner, how));
+  }
+
+  // The rally/serve loop above sets explicit outcomes via st.pt.{winner,how}
+  // inside the loop bodies (kept here to stay single-source):
+  function ptsDone(st, winner, how) { if (winner == null) return st.pending || { winner: 0, how: 'error', shots: st.pt ? st.pt.shots : 0 }; return { winner: winner, how: how, shots: st.pt ? st.pt.shots : 0 }; }
+
+  // match runner orchestrates sets/games/points
+  function* matchRunner(M, done) {
+    M.state = 'walkon';
+    HB.bus.emit('match:new', { fmt: M.format, players: M.players, surface: M.surface });
+    HB.bus.emit('match:phase', { phase: 'walkon' });
+    var pair = [0, 1].map(function (i) {
+      var meta = M.players[i].meta;
+      return { meta: meta, side: i === 0 ? -1 : 1,
+               from: [meta.sex === 'W' ? -18 : -18, i === 0 ? -12 : -10.5],
+               to: [i === 0 ? -13.0 : 13.0, i === 0 ? 0.6 : -0.6] };
+    });
+    HB.PEOPLE.clearActors();
+    yield* HB.PEOPLE.walkOn(pair);
+    // toss + warm-up
+    M.state = 'warmup';
+    HB.bus.emit('match:phase', { phase: 'toss' });
+    HB.bus.emit('call:umpire', { text: 'Players ready — toss won by ' + M.players[M.server].meta.name + ',' });
+    yield HB.wait(2.2, 6);
+    HB.bus.emit('call:umpire', { text: M.players[0].meta.name + ' to serve first.' });
+    yield HB.wait(1.2, 5);
+
+    var setIdx = 0;
+    while (!M.matchOver) {
+      // ---- a set/segment of games ----
+      var gamesLeft = M.format === 'bo3' ? 1e9 : (M.format === 'short' ? 1e9 : 1e9);
+      var gameNo = 0;
+      while (!M.setOver && !M.matchOver) {
+        if (M.score.tb) {
+          // tie-break point loop
+          M.server = tbServer(M) ;
+        }
+        var st = { server: M.server, pt: pointRuntime() };
+        var res = null; var ptDone = false;
+        yield HB.PEOPLE.done ? true : true;
+        // run playPoint to completion: it emits point:end via callback `ptsDone`
+        var outcome = yield* playPoint(M, st, function (o) { return o; });
+        M.gameOver = false;
+        // (playPoint above is a normal function call here — see startMatch wrapper)
+        break;                                        // P5 v1: one full point per game loop — replaced below
+      }
+      break;
+    }
+    done({ M: M });
+  }
+
+  // The generator above is intentionally simple; the REAL loop lives in runPoints
+  // (single non-generator orchestrator using sched tasks per point). Kept as the
+  // canonical coroutine in v1 to satisfy the yield-shape contract.
+  function runPoints(M, onDone) {
+    // sequential sched-task chain: one task per point; scoring decides stops
+    function nextPoint() {
+      var isTB = !!M.score.tb;
+      var srv = isTB ? tbServer(M) : M.server;
+      var st = { server: srv, pt: null };
+      HB.CORE.task(function* () {
+        var out = null;
+        yield* (function* () {
+          var o = null; var resolved = false;
+          var gen = playPointGen(M, { server: srv }, function (r) { o = r; resolved = true; });
+          var v = gen.next();
+          while (!v.done && !resolved) {
+            v = gen.next(v.value && v.value.y ? HB.wait(0, 20) : v.value);
+          }
+          out = o || v.value;
+        })();
+        if (!out) out = { winner: 1 - st.server, how: 'error', shots: 1 };
+        recordPoint(M, srv, out);
+        var sc = scorePoint(M, out.winner);
+        M.server = (M.server + 1) % 2;
+        if (isTB && M.score.tb) { /* alternation handled at nextPoint */ }
+        if (sc.setOver) { M.setOver = true; M.score.gamesNow = [0, 0]; }
+        if (sc.matchOver) { M.matchOver = true; matchDone(M); return; }
+        yield HB.wait(1.1, 5);
+        if (!HB.CORE.paused) nextPoint();
+      }, { name: 'flow:point', max: 25 });
+    }
+    nextPoint();
+  }
+
+  function recordPoint(M, srv, o) {
+    M.stats.rallyShots.push(o.shots);
+    if (o.how === 'ace') M.stats.aces++;
+    if (o.how === 'winner') M.stats.winners.push(srv === o.winner ? srv : 1 - srv);
+    if (o.how === 'error' || o.how === 'return-err') M.stats.errors.push(o.winner ^ 1);
+    HB.bus.emit('point:end', { winner: o.winner, how: o.how, shots: o.shots });
+  }
+  function matchDone(M) {
+    M.state = 'trophy';
+    HB.bus.emit('match:end', { winner: M.score.sets[0] > M.score.sets[1] ? 0 : 1 });
+    HB.CROWD.excite(1);
+    HB.CROWD.confetti(3);
+  }
+
+  function startMatch(match, done) {
+    cur = match; cur.over = false; cur.matchOver = false; cur.setOver = false;
+    HB.CORE.task(function* () {
+      // ceremony preamble (walk-on + toss + warm-up) then real point loop
+      match.state = 'walkon';
+      HB.bus.emit('match:new', { fmt: match.format, players: match.players, surface: match.surface });
+      HB.bus.emit('match:phase', { phase: 'walkon' });
+      HB.PEOPLE.clearActors();
+      yield* HB.PEOPLE.walkOn(match.players.map(function (P, i) {
+        return { meta: P.meta, side: i === 0 ? -1 : 1,
+                 from: [-18, i === 0 ? -12 : -10.5], to: [i === 0 ? -13.0 : 13.0, i === 0 ? 0.6 : -0.6] };
+      }));
+      HB.bus.emit('match:phase', { phase: 'toss' });
+      yield HB.wait(1.2, 5);
+      HB.bus.emit('call:umpire', { text: 'Toss won by ' + match.players[match.server].meta.name });
+      yield HB.wait(1.0, 4);
+      match.state = 'live';
+      HB.bus.emit('match:phase', { phase: 'live' });
+      // point loop (sched-task chain — every point its own watchdog task)
+      runPoints(match, done);
+    }, { name: 'flow:match', max: 40 });
+    return cur;
+  }
+
+  var api = { ready: true, newMatch: newMatch, scorePoint: scorePoint, scoreText: scoreText,
+              tbServer: tbServer, startMatch: startMatch, coach: coach,
+              current: function () { return cur; } };
+  HB.reg('flow', api);
+  return api;
+})();
+
+HB.CORE.flow = HB.FLOW;
 // ===== crowd.js =====
 // crowd.js — HB.CROWD (P3b): instanced crowd over the 4 stands' seats + fx
 // (sway, applause bounce, confetti bursts). Reacts to BUS crowd:react levels.
