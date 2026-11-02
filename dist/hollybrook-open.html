@@ -332,6 +332,25 @@ HB.DEBUG.stats = function () {
            rt: pl ? [pl.P.rw, pl.P.rh] : null };
 };
 
+// qa=calib — run the calibration harness on the real page (PLAN P4b): table to
+// console, kept on HB.DEBUG.calib, breaches tick __hbErrs ('calib:OUT') for QA assert.
+HB.DEBUG.runCalib = function (n) {
+  var res = HB.RALLY.calibrate(n || 2000);
+  HB.DEBUG.calib = res;
+  var T = { firstServePct: [60, 65], acePct: [4, 8], dfPct: [2, 4], meanRally: [4, 7] };
+  var bad = [];
+  Object.keys(res).forEach(function (sf) {
+    console.log(sf, JSON.stringify(res[sf]));
+    Object.keys(T).forEach(function (k) {
+      var v = res[sf][k];
+      if (v < T[k][0] || v > T[k][1])
+        bad.push(sf + '.' + k + '=' + v + ' not in [' + T[k][0] + ',' + T[k][1] + ']');
+    });
+  });
+  if (bad.length) window.__hbErrs.push({ type: 'calib', msg: 'calib:OUT ' + bad.join('; ') });
+  return res;
+};
+
 HB.reg('debug', HB.DEBUG);
 // ===== util.js =====
 // util.js — HB.UTIL: rng, colour (OKLab), lerp/clamp/ease, geometry merge (ARCH §2).
@@ -1358,7 +1377,9 @@ HB.COURT = (function () {
     [13.9, -13.9].forEach(function (ex) {
       var face = (ex > 0) ? -1 : 1;                 // face toward court
       [-4.6, 0, 4.6].forEach(function (z2) {
-        specs.push({ x: ex, z: z2, rotY: face * -Math.PI / 2, faceX: face });
+        // rotY = face*+π/2 points the plane normal TOWARD the court (east −X, west
+        // +X); the old `face * -π/2` faced both rows outward (mirrored text bug).
+        specs.push({ x: ex, z: z2, rotY: face * Math.PI / 2, faceX: face });
       });
     });
     var bodies = [], i = 0;
@@ -2417,14 +2438,21 @@ HB.BALL = (function () {
 HB.RALLY = (function () {
   var U = HB.UTIL;
 
+  // Draw one value from an existing (stateful) generator OR a raw seed. P4b ROOT
+  // CAUSE FIX: code used to call U.rng(meta.r)() — mulberry32 coerces a function
+  // seed to 0, so EVERY roll returned the same first constant from seed 0: matches
+  // froze at cap-40 rallies, aces never fired, 1st-serve pinned at 100 %. Never
+  // re-seed with a generator — draw through roll().
+  function roll(r) { return (typeof r === 'function') ? r() : U.rng(r)(); }
+
   // ---------- decision model ----------
   // returns {target:{x,z}, spin:{top,side}, clearance, Tscale, kind}
   function chooseShot(p, meta) {
     // court-local: p is ball contact {x,z}; pick placement
-    var deepX = 6.5 + U.rng(meta.r)() * 3.5;         // depth 6.5..10 (past service 6.4)
-    var wideZ = 2.0 + U.rng(meta.r)() * 1.6;         // z 2..3.6 (open court)
-    var lineZ = 0.4 + U.rng(meta.r)() * 0.9;
-    var z = (U.rng(meta.r)() < 0.62) ? (U.rng(meta.r)() < 0.5 ? wideZ : -wideZ) : lineZ * (meta.side || 1);
+    var deepX = 6.5 + roll(meta.r) * 3.5;            // depth 6.5..10 (past service 6.4)
+    var wideZ = 2.0 + roll(meta.r) * 1.6;            // z 2..3.6 (open court)
+    var lineZ = 0.4 + roll(meta.r) * 0.9;
+    var z = (roll(meta.r) < 0.62) ? (roll(meta.r) < 0.5 ? wideZ : -wideZ) : lineZ * (meta.side || 1);
     var risk = meta.player.tactic.risk / 100;
     var topRate = (meta.player.tactic.net > 45) ? -1600 - risk * 1800 : -700 - risk * 900;
     return { target: { x: deepX * (1 + meta.player.tactic.cons / 400), z: z },
@@ -2439,100 +2467,107 @@ HB.RALLY = (function () {
     var cons = meta.player.cons / 100;
     var base = kind === 'serve' ? 0.28 : 0.115;
     var p = base * (0.55 + risk * 0.9) * (1.35 - cons);
-    return U.rng(meta.r)() < p;
+    return roll(meta.r) < p;
   }
   function missGeom(meta, shot) {  // turns an error into a REAL geometry miss
-    var side = U.rng(meta.r)() < 0.5 ? 1 : -1;
-    var kind = U.rng(meta.r)() < 0.45 ? 'long' : 'wide';
-    if (kind === 'long') shot.target.x += side > 0 ? 1.1 + U.rng(meta.r)() : -(0.9 + U.rng(meta.r)());
-    else shot.target.z += side * (0.55 + U.rng(meta.r)() * 0.5);
-    if (U.rng(meta.r)() < 0.22) shot.target.x = (shot.target.x > 0 ? 1 : -1) * -0.4; // netted
+    var side = roll(meta.r) < 0.5 ? 1 : -1;
+    var kind = roll(meta.r) < 0.45 ? 'long' : 'wide';
+    if (kind === 'long') shot.target.x += side > 0 ? 1.1 + roll(meta.r) : -(0.9 + roll(meta.r));
+    else shot.target.z += side * (0.55 + roll(meta.r) * 0.5);
+    if (roll(meta.r) < 0.22) shot.target.x = (shot.target.x > 0 ? 1 : -1) * -0.4; // netted
     return shot;
   }
 
   // ---------- headless point sim ----------
-  // players: [{player, r}, ...]; server index. Court-local rotated coords: server
-  // hits from x=∓11, ball crosses x=0. Surface affects rally length (speedMix).
+  // Statistical twin of the on-court loop (FLOW drives the real one). Every roll is
+  // a FRESH draw — no shared meta.r correlation. Surface effect: rally stop-prob
+  // scales with CFG.bounce[surf].speedMix (clay 0.93 lengthens, carpet 1.05 shortens).
+  var TUNE = {
+    pErrBase: 0.26,     // unforced error / contact at avg attrs (calibrated P4b)
+    pWinBase: 0.065,    // clean winner / contact at avg attrs
+    retErrMul: 1.55,    // return of serve is the hardest contact
+    rallyCap: 40
+  };
   function simPoint(ps, server, opts) {
     opts = opts || {};
     var surf = opts.surface || 'hard';
     var SP = HB.CFG.bounce[surf] || HB.CFG.bounce.hard;
-    var sp = ps[server];
+    var adj = SP.speedMix;
+    var sp = ps[server], rc = ps[1 - server];
     var S = sp.player.serve;
-    var receiver = 1 - server;
+    var cs = sp.player.cons / 100;
 
-    // ---- serve: 2 attempts ----
-    var faults = 0, ace = false;
-    for (var attempt = 0; attempt < 2; attempt++) {
-      var bad = (attempt === 1 ? 0 :
-        U.rng(sp.r)() < (1 - (0.60 + 0.05 * (sp.player.cons / 100)))) ||   // 1st-serve miss
-        U.rng(sp.r)() < S.dRate;
-      if (bad) { faults++; continue; }
-      // clean serve: return-quality roll decides ace vs live ball
-      var retQ = U.rng(ps[receiver].r)();
-      if (retQ < aceProb(sp, ps[receiver])) ace = true;
-      break;                                   // serve in (attempt 1 or 2)
-    }
-    if (faults >= 2)
-      return { winner: receiver, how: 'double-fault', shots: 0, stats: { dfs: 1 } };
+    // serve: attempt 1 (60-65% in, by consistency), then attempt 2
+    var p1stIn = 0.615 + 0.05 * (cs - 0.5);
+    var p2ndMiss = U.clamp(0.10 - cs * 0.06 + S.dRate * 0.5, 0.03, 0.14);
+    var s1In = roll(sp.r) < p1stIn;
+    var s1InFlag = s1In ? 1 : 0;
+    if (!(s1In || roll(sp.r) >= p2ndMiss))
+      return { winner: 1 - server, how: 'double-fault', shots: 0,
+               stats: { s1In: s1InFlag, df: 1 } };
+    // ace: strong serve/placement vs returner consistency; mostly off 1st serves
+    var ace = roll(rc.r) < aceProb(sp, rc) * (s1In ? 1 : 0.45);
     if (ace)
-      return { winner: server, how: 'ace', shots: 1, stats: { aces: 1 } };
+      return { winner: server, how: 'ace', shots: 1,
+               stats: { s1In: s1InFlag, ace: 1 } };
 
-    // ---- rally: alternate hits; per-shot error/winner rolls ----
-    var idx = receiver, shots = 0;
-    var surfaceRallyAdj = surf === 'clay' ? 1.25 : (surf === 'grass' || surf === 'carpet') ? 0.85 : 1.0;
-    while (shots < 40) {
-      shots++;
-      var m2 = ps[idx];
-      // per-shot outcome: error / forced-err pressure / winner / continue
-      var risk = m2.player.tactic.risk / 100, cons = m2.player.cons / 100;
-      var pErr = 0.155 * (0.6 + risk * 0.8) * (1.3 - cons) / surfaceRallyAdj;
-      var u = U.rng(m2.r)();
-      if (u < pErr) {
-        return { winner: 1 - idx, how: shots === 1 ? 'return-err' : 'error',
-                 shots: shots, stats: {} };
+    // rally: per-contact error | winner | continue — fresh roll, counting contacts
+    var idx = 1 - server;
+    for (var shots = 1; shots < TUNE.rallyCap; shots++) {
+      var m = ps[idx], ret = (shots === 1);           // first rally contact = return
+      var risk = m.player.tactic.risk / 100, cons = m.player.cons / 100;
+      var pE = TUNE.pErrBase * (0.60 + risk * 0.8) * (1.25 - cons) *
+               (ret ? TUNE.retErrMul : 1) * adj;
+      var pW = TUNE.pWinBase * (1.10 - cons * 0.30) * adj;
+      var u = roll(m.r);
+      var base = { stats: { s1In: s1InFlag } };
+      if (u < pE) {
+        base.winner = 1 - idx; base.how = ret ? 'return-err' : 'error';
+        base.shots = shots + 1; return base;
       }
-      if (u < pErr + 0.062) {                   // clean winner
-        return { winner: idx, how: 'winner', shots: shots, stats: {} };
+      if (u < pE + pW) {
+        base.winner = idx; base.how = 'winner';
+        base.shots = shots + 1; return base;
       }
-      idx = 1 - idx;                            // ball back
+      idx = 1 - idx;                                  // ball back
     }
-    return { winner: server, how: 'long-rally', shots: shots, stats: {} };
+    return { winner: server, how: 'long-rally', shots: TUNE.rallyCap,
+             stats: { s1In: s1InFlag } };
   }
   function aceProb(server, receiver) {
     // strong serve + weak returner -> more aces; tuned for 4–8 % band
     var pow = server.player.pow / 100, place = server.player.place / 100;
-    var ret = 0.028 + pow * 0.045 * place - (receiver.player.cons / 100) * 0.012;
-    return Math.max(0.01, ret);
+    var ret = 0.031 + pow * 0.054 * place - (receiver.player.cons / 100) * 0.016;
+    return U.clamp(ret, 0.012, 0.11);
   }
 
   // ---------- calibration harness (P4b / ARCH §11) ----------
+  // n points per surface. firstServePct = 1st ATTEMPTS that went in (excl. 2nd serves);
+  // seeds differ per surface AND pairing so each cell is an independent sample.
   function calibrate(n, onDone) {
     n = n || 2000;
     var out = {};
-    var surfaces = ['grass', 'clay', 'hard', 'carpet'];
-    surfaces.forEach(function (sf) {
-      var stats = { pts: 0, firstIn: 0, aces: 0, dfs: 0, rallyTotal: 0 };
-      for (var i = 0; i < 4; i++) {      // 4 players pairings × n/4 points
+    HB.CFG.surfaces.forEach(function (sf, j) {
+      var st = { pts: 0, s1: 0, s1In: 0, aces: 0, dfs: 0, rally: 0 };
+      for (var i = 0; i < 4; i++) {      // 4 pairings × n/4 points
         var a = HB.CFG.roster[i], b = HB.CFG.roster[(i + 1) % 4];
-        var seed = 1000 + i * 77 + String(sf).length;
-        var ps = prep(a, b, seed, sf);
+        var ps = prep(a, b, 1000 + j * 911 + i * 77, sf);
         for (var k = 0; k < n / 4; k++) {
-          var sv = k % 2;
-          var res = simPoint(ps, sv);
-          stats.pts++;
-          if (res.how !== 'double-fault') stats.firstIn++;
-          else stats.dfs++;
-          if (res.how === 'ace') stats.aces++;
-          stats.rallyTotal += res.shots;
+          var res = simPoint(ps, k % 2, { surface: sf });
+          st.pts++;
+          st.s1++;
+          if (res.stats.s1In) st.s1In++;
+          if (res.how === 'ace') st.aces++;
+          if (res.how === 'double-fault') st.dfs++;
+          st.rally += res.shots;
         }
       }
       out[sf] = {
-        points: stats.pts,
-        firstServePct: +(100 * stats.firstIn / stats.pts).toFixed(1),
-        acePct: +(100 * stats.aces / stats.pts).toFixed(1),
-        dfPct: +(100 * stats.dfs / stats.pts).toFixed(1),
-        meanRally: +(stats.rallyTotal / stats.pts).toFixed(2)
+        points: st.pts,
+        firstServePct: +(100 * st.s1In / st.s1).toFixed(1),
+        acePct: +(100 * st.aces / st.pts).toFixed(1),
+        dfPct: +(100 * st.dfs / st.pts).toFixed(1),
+        meanRally: +(st.rally / st.pts).toFixed(2)
       };
     });
     if (onDone) onDone(out);
@@ -2542,7 +2577,7 @@ HB.RALLY = (function () {
     function mk(p, s0) {
       return { player: p, r: U.rng(s0), side: 1 };
     }
-    // NOTE: simPoint uses ps[server]/ps[receiver]; serve side flips handled inside.
+    // simPoint uses ps[server]/ps[receiver]; serve side flips handled inside.
     return [mk(a, seed), mk(b, seed + 1)];
   }
 
@@ -2853,6 +2888,7 @@ HB.CORE.boot = (function () {
     var fmt = HB.DEBUG.params;                  // QA boot params (ARCH §14)
     if (fmt.ff) HB.CORE.sched.ff(parseFloat(fmt.ff) || 0);
     if (fmt.pix) HB.CORE.pipeline.setPixelSize(parseInt(fmt.pix, 10) || 2);
+    if (fmt.qa === 'calib') HB.DEBUG.runCalib(parseInt(fmt.n, 10) || 2000);
 
     clock = new THREE.Clock();
     loop();

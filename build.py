@@ -68,8 +68,11 @@ def main():
     html += tail
 
     if args.offline:
+        # Inline W3C namespace identifiers (createElementNS args inside three.js)
+        # are NOT network references — allow-list them before the external check.
+        probe = html.replace('http://www.w3.org/', '<w3-ns/>')
         for token in ('http://', 'https://', 'src="'):
-            if token in html:
+            if token in probe:
                 sys.exit('build: offline output still references external URL (%s)' % token)
 
     os.makedirs(DIST, exist_ok=True)

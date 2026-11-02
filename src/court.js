@@ -131,7 +131,9 @@ HB.COURT = (function () {
     [13.9, -13.9].forEach(function (ex) {
       var face = (ex > 0) ? -1 : 1;                 // face toward court
       [-4.6, 0, 4.6].forEach(function (z2) {
-        specs.push({ x: ex, z: z2, rotY: face * -Math.PI / 2, faceX: face });
+        // rotY = face*+π/2 points the plane normal TOWARD the court (east −X, west
+        // +X); the old `face * -π/2` faced both rows outward (mirrored text bug).
+        specs.push({ x: ex, z: z2, rotY: face * Math.PI / 2, faceX: face });
       });
     });
     var bodies = [], i = 0;

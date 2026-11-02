@@ -61,6 +61,7 @@ HB.CORE.boot = (function () {
     var fmt = HB.DEBUG.params;                  // QA boot params (ARCH §14)
     if (fmt.ff) HB.CORE.sched.ff(parseFloat(fmt.ff) || 0);
     if (fmt.pix) HB.CORE.pipeline.setPixelSize(parseInt(fmt.pix, 10) || 2);
+    if (fmt.qa === 'calib') HB.DEBUG.runCalib(parseInt(fmt.n, 10) || 2000);
 
     clock = new THREE.Clock();
     loop();

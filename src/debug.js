@@ -52,4 +52,23 @@ HB.DEBUG.stats = function () {
            rt: pl ? [pl.P.rw, pl.P.rh] : null };
 };
 
+// qa=calib — run the calibration harness on the real page (PLAN P4b): table to
+// console, kept on HB.DEBUG.calib, breaches tick __hbErrs ('calib:OUT') for QA assert.
+HB.DEBUG.runCalib = function (n) {
+  var res = HB.RALLY.calibrate(n || 2000);
+  HB.DEBUG.calib = res;
+  var T = { firstServePct: [60, 65], acePct: [4, 8], dfPct: [2, 4], meanRally: [4, 7] };
+  var bad = [];
+  Object.keys(res).forEach(function (sf) {
+    console.log(sf, JSON.stringify(res[sf]));
+    Object.keys(T).forEach(function (k) {
+      var v = res[sf][k];
+      if (v < T[k][0] || v > T[k][1])
+        bad.push(sf + '.' + k + '=' + v + ' not in [' + T[k][0] + ',' + T[k][1] + ']');
+    });
+  });
+  if (bad.length) window.__hbErrs.push({ type: 'calib', msg: 'calib:OUT ' + bad.join('; ') });
+  return res;
+};
+
 HB.reg('debug', HB.DEBUG);
