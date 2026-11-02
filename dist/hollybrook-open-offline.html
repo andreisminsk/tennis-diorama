@@ -1391,11 +1391,11 @@ HB.COURT = (function () {
     // court): 3 boards per end spanning z −6.9..6.9, facing the court. No boards
     // along the sidelines (players' run-off stays clean).
     var specs = [];   // {x, z, rotY, faceX}
-    [13.9, -13.9].forEach(function (ex) {
-      var face = (ex > 0) ? -1 : 1;                 // face toward court
+    // Rows flush against the E/W baseline stands (front row x=±16.7): banners read
+    // as part of the stand, not as floating strips in the players' run-off.
+    [16.5, -16.5].forEach(function (ex) {
+      var face = (ex > 0) ? -1 : 1;                 // face toward court (E −X / W +X)
       [-4.6, 0, 4.6].forEach(function (z2) {
-        // rotY = face*+π/2 points the plane normal TOWARD the court (east −X, west
-        // +X); the old `face * -π/2` faced both rows outward (mirrored text bug).
         specs.push({ x: ex, z: z2, rotY: face * Math.PI / 2, faceX: face });
       });
     });
@@ -1484,8 +1484,8 @@ HB.COURT = (function () {
     // NAV: court slab + net + board footprints blocked; apron walkable (§5)
     var nav = HB.CORE.nav;
     nav.rect(-12.5, -6.0, 12.5, 6.0, true);                    // slab (players use exact coords)
-    nav.rect(13.5, -6.9, 14.3, 6.9, true);                     // board row E
-    nav.rect(-14.3, -6.9, -13.5, 6.9, true);                   // board row W
+    nav.rect(16.4, -6.9, 16.7, 6.9, true);                     // board row E (at stand)
+    nav.rect(-16.7, -6.9, -16.4, 6.9, true);                   // board row W (at stand)
 
     HB.CORE.task(function* () {
       while (true) { yield HB.wait(0.25); fadeMarks(0.25); }
@@ -1811,7 +1811,7 @@ HB.CLUB = (function () {
     place(stand(27, 4, 20), 0, 8.6, 0, 0, 0);               // south sideline (4 rows: plaza behind)
     place(stand(27, 8, 22), 0, -8.6, Math.PI, 2, Math.PI);  // north sideline (LED above)
     place(stand(16, 4, 12), 16.9, 0, Math.PI / 2, 1, Math.PI / 2);   // east baseline
-    place(stand(14, 4, 10), -16.4, 0, -Math.PI / 2, 3, -Math.PI / 2); // west baseline (shorter: plaza passage on its south)
+    place(stand(14, 4, 10), -16.9, 0, -Math.PI / 2, 3, -Math.PI / 2); // west baseline — mirrored to east (−16.9: board row ±16.5 clears the front lip)
   }
 
   // ---- clubhouse (north) ----
@@ -2066,7 +2066,26 @@ HB.PEOPLE = (function () {
 
   // ---------- animation (cheap procedural, called from actor coroutines + render) ----------
   function pose(rig, dt) {
-    var r = rig.__rig, t = r.t += dt, k = r.state;
+    var r = rig.__rig;
+    if (!isFinite(rig.position.x) || !isFinite(rig.position.y) || !isFinite(rig.position.z)) {
+      (window.__hbErrs = window.__hbErrs || []).push({ type: 'pose', msg: 'rig pos NaN; reset' });
+      rig.position.set(r.moveTo ? r.moveTo.x : 0, 0, r.moveTo ? r.moveTo.z : 0);
+    }
+    if (r.moveTo) {                                          // glide: stride to target
+      var dx = r.moveTo.x - rig.position.x, dz = r.moveTo.z - rig.position.z;
+      var d = Math.sqrt(dx * dx + dz * dz);
+      if (d < 0.06) {
+        r.moveTo = null;
+        if (r.state === 'walk') r.state = 'idle';
+      } else {
+        var st = Math.min(d, 3.2 * dt);
+        rig.position.x += dx / d * st;
+        rig.position.z += dz / d * st;
+        if (r.state !== 'walk') r.state = 'walk';
+        r.phase += dt * 2.0;                                 // stride phase advance
+      }
+    }
+    var t = r.t += dt, k = r.state;
     var A = r.parts, w = r.phase;
     function sway(p, f, amp, ph) { p.rotation.x = Math.sin(t * f + ph) * amp; }
     if (k === 'walk') {
@@ -2182,6 +2201,7 @@ HB.PEOPLE = (function () {
       }).length;
     }
     for (var j3 = 0; j3 < jobs.length; j3++) setState(jobs[j3].rig, 'idle');
+    return jobs.map(function (J) { return J.rig; });          // caller owns these rigs
   }
 
   // ---------- debug spawns ----------
@@ -2489,7 +2509,9 @@ HB.RALLY = (function () {
     var z = (roll(meta.r) < 0.62) ? (roll(meta.r) < 0.5 ? wideZ : -wideZ) : lineZ * (meta.side || 1);
     var risk = meta.player.tactic.risk / 100;
     var topRate = (meta.player.tactic.net > 45) ? -1600 - risk * 1800 : -700 - risk * 900;
-    return { target: { x: deepX * (1 + meta.player.tactic.cons / 400), z: z },
+    // FIX: cons is a TOP-LEVEL Player field (CONTRACT §4) — tactic.cons is
+    // undefined → NaN deepX → every non-netted ground shot aimed at x=NaN.
+    return { target: { x: deepX * (1 + (meta.player.cons || 50) / 400), z: z },
              spin: { top: topRate, side: 0 }, clearance: 0.4 + risk * 0.5,
              Tscale: 1, kind: 'ground' };
   }
@@ -2742,6 +2764,27 @@ HB.FLOW = (function () {
     M.rigs = [null, null];
   }
 
+  // ---------- rig glide: destination on __rig, pose() strides there ----------
+  function glide(rig, x, z) {
+    if (!rig || !rig.__rig) return;
+    if (!isFinite(x) || !isFinite(z)) {                      // instrument the NaN source
+      (window.__hbErrs = window.__hbErrs || []).push({
+        type: 'glide', msg: 'glide NaN x=' + x + ' z=' + z + ' @ ' +
+          String((new Error()).stack || '').split('\n')[2] });
+      return;
+    }
+    rig.__rig.moveTo = { x: x, z: z };
+  }
+  function* glideWait(rig, x, z) {                            // walk, then settle
+    glide(rig, x, z);
+    yield HB.until(function () {
+      var r = rig && rig.__rig;
+      if (!r || !r.moveTo) return true;
+      var dx = x - rig.position.x, dz = z - rig.position.z;
+      return dx * dx + dz * dz < 0.06;
+    }, 3.5);
+  }
+
   // ---------- shot execution ----------
   function hit(M, i, contact, aim) {
     var sol = HB.KIN.solve({
@@ -2789,7 +2832,6 @@ HB.FLOW = (function () {
         var SP = M.players[srv].meta, S = SP.serve;
         HB.PEOPLE.setState(rigFor(M, srv), 'idle');
         yield HB.wait(0.7, 4);                               // bounce ritual
-        HB.PEOPLE.setState(rigFor(M, srv), 'serve');
         var p1stIn = 0.615 + 0.05 * (SP.cons / 100 - 0.5);
         var miss = (attempt === 1) ? (Math.random() >= p1stIn) :
           (Math.random() < U.clamp(0.10 - SP.cons / 100 * 0.06 + S.dRate * 2.5, 0.03, 0.14));
@@ -2802,6 +2844,8 @@ HB.FLOW = (function () {
         if (miss) tgt = HB.RALLY.missGeom({ player: SP, r: Math.random }, { target: tgt }).target;
         var contact = { x: endSign(M, srv) * (HALF + 1.05), y: 2.85,
                         z: U.clamp(tgt.z * 0.3, -1.6, 1.6) };
+        yield* glideWait(rigFor(M, srv), contact.x * 0.94, contact.z);  // drift to serve spot
+        HB.PEOPLE.setState(rigFor(M, srv), 'serve');
         var spin = { top: -900 - S.kphMean * 1.5, side: 0 };
         var sol = hit(M, srv, contact, { target: tgt, spin: spin, clearance: 1.05 });
         pt.shot = { hitter: srv, b1: null };
@@ -2833,6 +2877,8 @@ HB.FLOW = (function () {
         }
         if (attempt === 1) M.stats.firstIn++;
         live = true; pt.serveIn = true;                      // ball live; receiver up
+        glide(rigFor(M, rcv), U.clamp(tgt.x, -HALF - 1.5, HALF + 1.5),
+                             U.clamp(tgt.z, -SX - 1.2, SX + 1.2)); // returner pre-moves
       }
 
       // --- rally: receiver first, alternate until OUT / bounce2 ---
@@ -2851,14 +2897,19 @@ HB.FLOW = (function () {
                           z: U.clamp(shot.target.z, -SX + 0.5, SX - 0.5) };
           if (coach.aim && idx === (coach.side || 0)) shot.target = coach.aim;
         }
-        var bs = HB.BALL.state();
-        var cx = U.clamp(bs.p[0], -HALF - 1, HALF + 1);
+        // hit from wherever the rig is now (it pre-moved during the ball's flight);
+        // WAITING for arrival let the ball bounce twice → every rally died at 1 shot
+        var rigI = rigFor(M, idx);
+        var cx = U.clamp(rigI.position.x, -HALF - 1.2, HALF + 1.2);
         if (Math.sign(cx || 1) !== endSign(M, idx)) cx = endSign(M, idx) * HALF * 0.85;
-        var cz = U.clamp(bs.p[2], -SX - 0.8, SX + 0.8);
+        var cz = U.clamp(rigI.position.z, -SX - 1.0, SX + 1.0);
         hit(M, idx, { x: cx, y: 0.95, z: cz },
             { target: shot.target, spin: shot.spin, clearance: shot.clearance });
         pt.shot = { hitter: idx, b1: null };
         pt.shots = shots; shots++;
+        glide(rigFor(M, 1 - idx),                             // opponent runs during flight
+          U.clamp(shot.target.x, -HALF - 1.5, HALF + 1.5),
+          U.clamp(shot.target.z, -SX - 1.2, SX + 1.2));
         yield HB.until(function () { return pt.over || (pt.shot && pt.shot.b1 != null); }, 9);
         if (pt.over) break;                                  // our shot unanswered — after loop
         var b = pt.shot.b1;
@@ -2874,7 +2925,7 @@ HB.FLOW = (function () {
           return;
         }
         idx = 1 - idx;                                       // shot is in — opponent returns
-        yield HB.wait(0.2 + Math.random() * 0.3, 3);
+        yield HB.wait(0.18 + Math.random() * 0.25, 3);       // reaction after the bounce
       }
       // bounce2 verdict: last shot unanswered
       if (pt.decided === 'bounce2' && pt.shot) {
@@ -2925,6 +2976,19 @@ HB.FLOW = (function () {
   function scheduleNext(M) {
     if (M.matchOver) { finishMatch(M); return; }
     var rest = M.score.tb ? 0.5 : (M.gameNo % 2 === 1 ? 1.6 : 0.7);
+    var home = M.rigs;
+    HB.CORE.task(function* () {                              // recover to baseline
+      if (home && home[0] && HB.PEOPLE.actors().indexOf(home[0]) >= 0) {
+        HB.PEOPLE.setState(home[0], 'idle');
+        yield* glideWait(home[0], endSign(M, 0) * 13.0, 0.6);
+      }
+    }, { name: 'flow:recover0', max: 20 });
+    HB.CORE.task(function* () {
+      if (home && home[1] && HB.PEOPLE.actors().indexOf(home[1]) >= 0) {
+        HB.PEOPLE.setState(home[1], 'idle');
+        yield* glideWait(home[1], endSign(M, 1) * 13.0, -0.6);
+      }
+    }, { name: 'flow:recover1', max: 20 });
     HB.CORE.task(function* () {
       yield HB.wait(rest, 6);
       nextPoint(M);
@@ -2971,11 +3035,12 @@ HB.FLOW = (function () {
       HB.bus.emit('match:phase', { phase: 'walkon' });
       HB.PEOPLE.clearCourtActors();
       clearRigs(match);
-      yield* HB.PEOPLE.walkOn(match.players.map(function (P, i) {
+      var walked = yield* HB.PEOPLE.walkOn(match.players.map(function (P, i) {
         return { meta: P.meta, side: i === 0 ? -1 : 1,
                  from: [-20, i === 0 ? -13 : -11],
                  to: [i === 0 ? -13.0 : 13.0, i === 0 ? 0.6 : -0.6] };
       }));
+      match.rigs = [walked[0], walked[1]];                   // no replica rigs in rigFor
       match.firstServer = match.server = Math.random() < 0.5 ? 0 : 1;
       match.state = 'toss';
       HB.bus.emit('call:umpire', { text: 'Toss won by ' +
@@ -3281,6 +3346,9 @@ HB.UI = (function () {
     HB.bus.on('ui:log', function (d) { pushLog(d.t, d.cls); });
     HB.bus.on('call:umpire', function (d) { pushLog('⟡ ' + d.text); });
     HB.bus.on('call:line', function (d) { pushLog('OUT — ' + d.loc.map(function (v) { return v.toFixed(1); }).join(', ')); });
+    HB.bus.on('match:watchdog', function (d) {
+      pushLog('Watchdog — ' + d.task + ' stalled ' + d.blocked + ' s; force-resumed.', 'warn');
+    });
     HB.bus.on('match:new', function (d) {
       if (stats) stats.textContent = 'New ' + d.fmt + ' match — walk-on.';
     });
