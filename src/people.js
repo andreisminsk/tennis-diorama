@@ -99,6 +99,10 @@ HB.PEOPLE = (function () {
   // ---------- animation (cheap procedural, called from actor coroutines + render) ----------
   function pose(rig, dt) {
     var r = rig.__rig;
+    if (!isFinite(rig.position.x) || !isFinite(rig.position.y) || !isFinite(rig.position.z)) {
+      (window.__hbErrs = window.__hbErrs || []).push({ type: 'pose', msg: 'rig pos NaN; reset' });
+      rig.position.set(r.moveTo ? r.moveTo.x : 0, 0, r.moveTo ? r.moveTo.z : 0);
+    }
     if (r.moveTo) {                                          // glide: stride to target
       var dx = r.moveTo.x - rig.position.x, dz = r.moveTo.z - rig.position.z;
       var d = Math.sqrt(dx * dx + dz * dz);
@@ -229,6 +233,7 @@ HB.PEOPLE = (function () {
       }).length;
     }
     for (var j3 = 0; j3 < jobs.length; j3++) setState(jobs[j3].rig, 'idle');
+    return jobs.map(function (J) { return J.rig; });          // caller owns these rigs
   }
 
   // ---------- debug spawns ----------

@@ -119,7 +119,14 @@ HB.FLOW = (function () {
 
   // ---------- rig glide: destination on __rig, pose() strides there ----------
   function glide(rig, x, z) {
-    if (rig && rig.__rig) rig.__rig.moveTo = { x: x, z: z };
+    if (!rig || !rig.__rig) return;
+    if (!isFinite(x) || !isFinite(z)) {                      // instrument the NaN source
+      (window.__hbErrs = window.__hbErrs || []).push({
+        type: 'glide', msg: 'glide NaN x=' + x + ' z=' + z + ' @ ' +
+          String((new Error()).stack || '').split('\n')[2] });
+      return;
+    }
+    rig.__rig.moveTo = { x: x, z: z };
   }
   function* glideWait(rig, x, z) {                            // walk, then settle
     glide(rig, x, z);
@@ -178,7 +185,6 @@ HB.FLOW = (function () {
         var SP = M.players[srv].meta, S = SP.serve;
         HB.PEOPLE.setState(rigFor(M, srv), 'idle');
         yield HB.wait(0.7, 4);                               // bounce ritual
-        HB.PEOPLE.setState(rigFor(M, srv), 'serve');
         var p1stIn = 0.615 + 0.05 * (SP.cons / 100 - 0.5);
         var miss = (attempt === 1) ? (Math.random() >= p1stIn) :
           (Math.random() < U.clamp(0.10 - SP.cons / 100 * 0.06 + S.dRate * 2.5, 0.03, 0.14));
@@ -191,6 +197,8 @@ HB.FLOW = (function () {
         if (miss) tgt = HB.RALLY.missGeom({ player: SP, r: Math.random }, { target: tgt }).target;
         var contact = { x: endSign(M, srv) * (HALF + 1.05), y: 2.85,
                         z: U.clamp(tgt.z * 0.3, -1.6, 1.6) };
+        yield* glideWait(rigFor(M, srv), contact.x * 0.94, contact.z);  // drift to serve spot
+        HB.PEOPLE.setState(rigFor(M, srv), 'serve');
         var spin = { top: -900 - S.kphMean * 1.5, side: 0 };
         var sol = hit(M, srv, contact, { target: tgt, spin: spin, clearance: 1.05 });
         pt.shot = { hitter: srv, b1: null };
@@ -222,6 +230,8 @@ HB.FLOW = (function () {
         }
         if (attempt === 1) M.stats.firstIn++;
         live = true; pt.serveIn = true;                      // ball live; receiver up
+        glide(rigFor(M, rcv), U.clamp(tgt.x, -HALF - 1.5, HALF + 1.5),
+                             U.clamp(tgt.z, -SX - 1.2, SX + 1.2)); // returner pre-moves
       }
 
       // --- rally: receiver first, alternate until OUT / bounce2 ---
@@ -240,15 +250,19 @@ HB.FLOW = (function () {
                           z: U.clamp(shot.target.z, -SX + 0.5, SX - 0.5) };
           if (coach.aim && idx === (coach.side || 0)) shot.target = coach.aim;
         }
-        var bs = HB.BALL.state();
-        var cx = U.clamp(bs.p[0], -HALF - 1, HALF + 1);
+        // hit from wherever the rig is now (it pre-moved during the ball's flight);
+        // WAITING for arrival let the ball bounce twice → every rally died at 1 shot
+        var rigI = rigFor(M, idx);
+        var cx = U.clamp(rigI.position.x, -HALF - 1.2, HALF + 1.2);
         if (Math.sign(cx || 1) !== endSign(M, idx)) cx = endSign(M, idx) * HALF * 0.85;
-        var cz = U.clamp(bs.p[2], -SX - 0.8, SX + 0.8);
-        yield* glideWait(rigFor(M, idx), cx, cz);             // run to the ball
+        var cz = U.clamp(rigI.position.z, -SX - 1.0, SX + 1.0);
         hit(M, idx, { x: cx, y: 0.95, z: cz },
             { target: shot.target, spin: shot.spin, clearance: shot.clearance });
         pt.shot = { hitter: idx, b1: null };
         pt.shots = shots; shots++;
+        glide(rigFor(M, 1 - idx),                             // opponent runs during flight
+          U.clamp(shot.target.x, -HALF - 1.5, HALF + 1.5),
+          U.clamp(shot.target.z, -SX - 1.2, SX + 1.2));
         yield HB.until(function () { return pt.over || (pt.shot && pt.shot.b1 != null); }, 9);
         if (pt.over) break;                                  // our shot unanswered — after loop
         var b = pt.shot.b1;
@@ -264,7 +278,7 @@ HB.FLOW = (function () {
           return;
         }
         idx = 1 - idx;                                       // shot is in — opponent returns
-        yield HB.wait(0.2 + Math.random() * 0.3, 3);
+        yield HB.wait(0.18 + Math.random() * 0.25, 3);       // reaction after the bounce
       }
       // bounce2 verdict: last shot unanswered
       if (pt.decided === 'bounce2' && pt.shot) {
@@ -315,6 +329,19 @@ HB.FLOW = (function () {
   function scheduleNext(M) {
     if (M.matchOver) { finishMatch(M); return; }
     var rest = M.score.tb ? 0.5 : (M.gameNo % 2 === 1 ? 1.6 : 0.7);
+    var home = M.rigs;
+    HB.CORE.task(function* () {                              // recover to baseline
+      if (home && home[0]) {
+        HB.PEOPLE.setState(home[0], 'idle');
+        yield* glideWait(home[0], endSign(M, 0) * 13.0, 0.6);
+      }
+    }, { name: 'flow:recover0', max: 8 });
+    HB.CORE.task(function* () {
+      if (home && home[1]) {
+        HB.PEOPLE.setState(home[1], 'idle');
+        yield* glideWait(home[1], endSign(M, 1) * 13.0, -0.6);
+      }
+    }, { name: 'flow:recover1', max: 8 });
     HB.CORE.task(function* () {
       yield HB.wait(rest, 6);
       nextPoint(M);
@@ -361,11 +388,12 @@ HB.FLOW = (function () {
       HB.bus.emit('match:phase', { phase: 'walkon' });
       HB.PEOPLE.clearCourtActors();
       clearRigs(match);
-      yield* HB.PEOPLE.walkOn(match.players.map(function (P, i) {
+      var walked = yield* HB.PEOPLE.walkOn(match.players.map(function (P, i) {
         return { meta: P.meta, side: i === 0 ? -1 : 1,
                  from: [-20, i === 0 ? -13 : -11],
                  to: [i === 0 ? -13.0 : 13.0, i === 0 ? 0.6 : -0.6] };
       }));
+      match.rigs = [walked[0], walked[1]];                   // no replica rigs in rigFor
       match.firstServer = match.server = Math.random() < 0.5 ? 0 : 1;
       match.state = 'toss';
       HB.bus.emit('call:umpire', { text: 'Toss won by ' +
