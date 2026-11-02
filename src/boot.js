@@ -45,8 +45,8 @@ HB.CORE.boot = (function () {
     HB.CORE.task(function* () {
       yield HB.wait(1.2, 10);
       yield* HB.PEOPLE.walkOn([
-        { meta: HB.CFG.roster[0], side: -1, from: [-18, -12], to: [-9.2, 0.6] },
-        { meta: HB.CFG.roster[1], side: 1, from: [-18, -10.6], to: [9.2, -0.6] }
+        { meta: HB.CFG.roster[0], side: -1, from: [-18, -12], to: [-13.0, 0.6] },
+        { meta: HB.CFG.roster[1], side: 1, from: [-18, -10.6], to: [13.0, -0.6] }
       ]);
     }, { name: 'boot:walkon', max: 60 });
     HB.CORE.nav.rect(-32, -20, 32, -19, true);  // island rim sanity (real layout P1b)

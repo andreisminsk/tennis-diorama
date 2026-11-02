@@ -223,8 +223,8 @@ HB.PEOPLE = (function () {
       off = officials();
       var m0 = HB.CFG.roster[0], m1 = HB.CFG.roster[1];
       HB.CORE.task(walkOn([
-        { meta: m0, side: -1, from: [-18, -12], to: [-9, 0.6] },
-        { meta: m1, side: 1, from: [-18, -10.5], to: [9, -0.6] }
+        { meta: m0, side: -1, from: [-18, -12], to: [-13.0, 0.6] },
+        { meta: m1, side: 1, from: [-18, -10.5], to: [13.0, -0.6] }
       ]), { name: 'walkon', max: 60 });
     }
   });
