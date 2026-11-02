@@ -20,6 +20,7 @@ HB.CROWD = (function () {
       if (o.__seats) stands.push(o);
     });
     if (!stands.length) return api;
+    scene.updateMatrixWorld(true);   // MUST precede seat compute (was after — ghost rows)
     var ACC = ['#c8102e', '#f2f2f2', '#1e3a8a', '#f7c531', '#3ecfb2', '#f28cb1',
                '#64748b', '#e2591f', '#00a3c8', '#28c76f'];
     var total = 0;
@@ -38,7 +39,7 @@ HB.CROWD = (function () {
       for (var rr = 0; rr < rows; rr++)
         for (var cc = 0; cc < cols; cc++) {
           var lx = -len / 2 + pitch * (cc + 0.5);
-          var ly = stepH * rr + stepH + 0.78;      // seat top + torso half
+          var ly = stepH * rr + stepH + 0.25 + 0.30;  // on the seat: seat top + torso half
           var lz = rr * stepD + stepD / 2;
           var p = new THREE.Vector3(lx, ly, lz).applyMatrix4(s.matrixWorld);
           // skip ~8% of seats (empty seats read realistic)

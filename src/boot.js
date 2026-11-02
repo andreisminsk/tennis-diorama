@@ -34,6 +34,8 @@ HB.CORE.boot = (function () {
       if (m && m.ready && m.build) m.build(scene);
     });
     if (HB.CROWD && HB.CROWD.ready) HB.CROWD.build(scene);
+    if (HB.BALL && HB.BALL.ready) HB.BALL.build(scene);
+    if (HB.PEOPLE && HB.PEOPLE.ready) HB.PEOPLE.ready = HB.PEOPLE.ready;  // passive module
     var ps = HB.DEBUG.params.surface;              // forced state (QA shortcut)
     if (ps && HB.CFG.bounce[ps]) {
       HB.CFG.current.surface = ps;
@@ -74,6 +76,7 @@ HB.CORE.boot = (function () {
       var rigs = HB.PEOPLE.actors();
       for (var i = 0; i < rigs.length; i++) HB.PEOPLE.pose(rigs[i], dt);
     }
+    if (HB.BALL && HB.BALL.ready) HB.BALL.step(Math.min(dt, 0.1) * HB.CORE.speed);
     HB.CORE.pipeline.render(scene, HB.CORE.camera.object());
   }
 
