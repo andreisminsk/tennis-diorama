@@ -242,13 +242,19 @@ HB.FLOW = (function () {
         var isReturn = (shots === 1);
         var shot = HB.RALLY.chooseShot(HP, { r: Math.random, side: 1, player: HP });
         var far = endSign(M, 1 - idx);
-        if (Math.random() < errP(HP, isReturn)) {
+        var tacM = (idx === 0 && coach.tactic === 'go') ? 1.35 :
+                   (idx === 0 && coach.tactic === 'safe') ? 0.7 : 1;
+        if (Math.random() < errP(HP, isReturn) * tacM) {
           shot.target = HB.RALLY.missGeom({ player: HP, r: Math.random },
             { target: shot.target }).target;
         } else {
           shot.target = { x: far * Math.abs(shot.target.x),
                           z: U.clamp(shot.target.z, -SX + 0.5, SX - 0.5) };
-          if (coach.aim && idx === (coach.side || 0)) shot.target = coach.aim;
+          tacticShot(idx, shot, far);                          // P6 coach intent
+          if (coach.aim && idx === (coach.side || 0)) {        // aim: consume once
+            shot.target = { x: coach.aim.x, z: coach.aim.z };
+            coach.aim = null;
+          }
         }
         // hit from wherever the rig is now (it pre-moved during the ball's flight);
         // WAITING for arrival let the ball bounce twice → every rally died at 1 shot
@@ -300,11 +306,46 @@ HB.FLOW = (function () {
     var risk = HP.tactic.risk / 100, cons = HP.cons / 100;
     return (isReturn ? 0.34 : 0.26) * (0.6 + risk * 0.8) * (1.25 - cons);
   }
+  function tacticShot(idx, shot, far) {                      // P6: coach intent shapes targets
+    if (idx !== 0 || coach.tactic === 'auto') return;
+    var t = coach.tactic;
+    if (t === 'go') shot.clearance = Math.max(0.15, shot.clearance * 0.55);
+    else if (t === 'safe') {
+      shot.clearance += 0.2;
+      shot.target.x = far * Math.min(Math.abs(shot.target.x), 8.0);
+    } else if (t === 'net') {
+      shot.target.x = far * (3.4 + Math.random() * 1.5);
+      shot.target.z *= 0.45; shot.clearance = 0.3;
+    } else if (t === 'drop') {
+      shot.target.x = far * (1.1 + Math.random() * 0.6);
+      shot.target.z *= 0.5; shot.clearance = 0.22;
+    } else if (t === 'lob') {
+      shot.target.x = far * (9.4 + Math.random() * 1.4);
+      shot.clearance = 2.1; shot.spin = { top: -320, side: 0 };
+    }
+  }
   function inSingles(l) {
     return Math.abs(l.x) <= HALF + 0.05 && Math.abs(l.z) <= SX + 0.05;
   }
 
   // ---------- point resolution → scoring → next chain ----------
+  // ---- P6 commentary: light match-colour lines into the feed (BUS-only) ----
+  function commentate(M, w, how2, sc) {
+    var who = M.players[w].meta.name.split(' ').pop();
+    var streak = (M.comment = M.comment || { streak: [0, 0], prevW: -1 });
+    streak.streak[w] = (streak.prevW === w) ? streak.streak[w] + 1 : 1;
+    streak.streak[1 - w] = 0;
+    streak.prevW = w;
+    var s = streak.streak[w];
+    if (how2 === 'ace' && M.stats.aces >= 3)
+      log('Commentary — ' + who + ' is finding the corners: ' + M.stats.aces + ' aces now.', 'big');
+    else if (s === 3)
+      log('Commentary — ' + who + ' has won three straight points; momentum shift.', '');
+    else if (sc.tbStart)
+      log('Commentary — level at ' + M.score.gamesNow[0] + '–' + M.score.gamesNow[1] + '. Tie-break tennis!', '');
+    else if (sc.gameOver && M.score.gamesNow[w] >= 4 && M.format !== 'short')
+      log('Commentary — ' + M.players[w].meta.name + ' closing in on the set.', '');
+  }
   function endPoint(M, winner, how, shots, serveWinner) {
     var isAce = serveWinner && shots <= 1;
     var how2 = isAce ? 'ace' : how;
@@ -317,6 +358,7 @@ HB.FLOW = (function () {
     var sc = scorePoint(M, winner);
     if (sc.matchOver) M.matchOver = true;
     if (sc.msg) { log(sc.msg, sc.matchOver ? 'big' : ''); HB.bus.emit('call:umpire', { text: sc.msg }); }
+    commentate(M, winner, how2, sc);
     HB.bus.emit('crowd:react', { level: sc.matchOver ? 1 : (isAce ? 0.7 : 0.25) });
     if (sc.setOver && !sc.matchOver) {
       M.ends = 1 - M.ends;
@@ -362,18 +404,39 @@ HB.FLOW = (function () {
     }
     yield HB.wait(t, 8);
   }
+  var flags = { skipCeremony: false, autoNext: true };
+  HB.bus.on('ui:flags', function (d) {
+    if (d.skipCeremony != null) flags.skipCeremony = !!d.skipCeremony;
+    if (d.autoNext != null) flags.autoNext = !!d.autoNext;
+  });
+  HB.bus.on('ui:newmatch', function () {                    // manual start beats auto-next
+    flags.autoNext = false;                                  // (restart via panel button)
+    HB.CORE.task(function* () { yield HB.wait(0); flags.autoNext = true; },
+      { name: 'flow:flagreset', max: 5 });
+  });
   function finishMatch(M) {
     if (M.finished) return;
     M.finished = true;
     M.state = 'trophy';
     var w = M.score.sets[0] > M.score.sets[1] ? 0 : 1;
     HB.CORE.task(function* () {
-      yield* handshake(M);
+      if (!flags.skipCeremony) {
+        yield* handshake(M);
+        HB.CROWD.excite(1); HB.CROWD.confetti(3);
+        log('TROPHY — ' + M.players[w].meta.name + ' wins the Hollybrook Open!', 'big');
+      } else {
+        log('Ceremony skipped — ' + M.players[w].meta.name + ' wins the Hollybrook Open!', 'big');
+      }
       HB.bus.emit('match:end', { winner: w });
-      HB.CROWD.excite(1); HB.CROWD.confetti(3);
-      log('TROPHY — ' + M.players[w].meta.name + ' wins the Hollybrook Open!', 'big');
       if (M.onDone) { var cb = M.onDone; M.onDone = null;
         cb({ winner: w, score: M.score.sets, games: M.score.gamesNow, stats: M.stats }); }
+      if (flags.autoNext) {                                  // P8: loop a new match
+        yield HB.wait(6, 12);
+        log('Auto-next: starting a fresh match.', '');
+        var metas = [M.players[0].meta, M.players[1].meta];
+        var M2 = newMatch(M.format, metas, M.surface);
+        startMatch(M2, null);
+      }
     }, { name: 'flow:trophy', max: 30 });
   }
 
@@ -408,6 +471,21 @@ HB.FLOW = (function () {
   }
 
   var coach = { tactic: 'auto', srvDir: 'auto', aim: null, side: 0 };
+  HB.bus.on('coach:tactic', function (d) {                   // P6 UI → FLOW (BUS-only)
+    if (d.kind === 'serve') {
+      coach.srvDir = d.dir || 'auto';
+      log('Coach: serving ' + (d.dir === 'auto' ? 'auto' : d.dir) + '.', '');
+    } else {
+      coach.tactic = d.tactic || 'auto';
+      log('Coach: tactic → ' + coach.tactic + '.', 'big');
+      HB.bus.emit('audio:all', { kind: 'ui' });
+    }
+  });
+  HB.bus.on('coach:aim', function (d) {
+    if (!isFinite(d.x) || !isFinite(d.z)) return;
+    coach.aim = { x: d.x, z: d.z }; coach.side = 0;          // coach drives player 0
+    log('Coach: aim set (' + d.x.toFixed(1) + ', ' + d.z.toFixed(1) + ').', '');
+  });
   HB.bus.on('debug:runmatch', function (d) {                 // ?qa=match harness entry
     var metas = [HB.CFG.roster[0], HB.CFG.roster[1]];
     var M = newMatch(d.fmt || 'set', metas, d.surf);

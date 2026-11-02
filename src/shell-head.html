@@ -134,22 +134,22 @@
     <div class="sec" id="sec-coach">
       <h2>Coach</h2>
       <div class="seg" id="tactic">
-        <button data-tac="auto" class="on" disabled>Auto</button>
-        <button data-tac="go" disabled>Go for it</button>
-        <button data-tac="safe" disabled>Safe</button>
-        <button data-tac="net" disabled>Rush net</button>
-        <button data-tac="drop" disabled>Drop</button>
-        <button data-tac="lob" disabled>Lob</button>
+        <button data-tac="auto" class="on">Auto</button>
+        <button data-tac="go">Go for it</button>
+        <button data-tac="safe">Safe</button>
+        <button data-tac="net">Rush net</button>
+        <button data-tac="drop">Drop</button>
+        <button data-tac="lob">Lob</button>
       </div>
       <div class="row"><label for="srvDir">Serve dir</label>
-        <select id="srvDir" class="wide" disabled>
+        <select id="srvDir" class="wide">
           <option value="auto" selected>Auto</option>
           <option value="wide">Wide</option><option value="body">Body</option>
           <option value="tee">T</option>
         </select></div>
       <div class="row">
-        <button id="btnAim" class="wide" disabled>Aim next shot (click court)</button>
-        <button id="btnChal" disabled>Challenge</button></div>
+        <button id="btnAim" class="wide">Aim next shot (click court)</button>
+        <button id="btnChal" disabled title="P6 later">Challenge</button></div>
     </div>
 
     <div class="sec" id="sec-cam">
@@ -165,6 +165,9 @@
       <div class="hint">Q / E turn · wheel zoom · drag orbit (vertical = tilt) · shift-drag pan</div>
     </div>
 
+    <div class="sec"><h2>Audio</h2><div class="row">
+      <button id="btnAudio" class="wide">Enable sound</button>
+      <span class="hint" id="audState">off</span></div></div>
     <div class="sec"><h2>Match centre</h2><div id="stats">No match yet.</div></div>
     <div class="sec"><h2>Commentary feed</h2><ul id="feed"></ul></div>
   </div>

@@ -1,3 +1,9 @@
+Original game by https://x.com/vib3coded and Claude Sonnet 5.5
+Game video: https://x.com/vib3coded/status/2117018336605172040?a=fLfPWdxLTZKCvdGstGs&s=20
+Game live: https://claude.ai/artifact/EoFoLuqfiLm3q9PiYTTbeD
+
+PROMPT:
+
 Build a real-time 3D pixel-art diorama of a singles tennis final ("big tennis"), "Hollybrook Open", as ONE self-contained HTML page: three.js r128 from cdnjs (no other external assets, no localStorage/eval/alert). Publish it as an artifact and also give me a standalone offline HTML file.
 
 LOOK (same style as my earlier dioramas): a match in a club stadium on a floating island; orthographic isometric camera at 31 degrees, quarter turns (Q/E), wheel zoom, drag to orbit/pan, follow camera; render to a low-res target with a "Pixel size" slider 1-6 (default 2), depth outlines, a fixed 90-colour palette (OKLab snap) and Bayer dither; the stands/walls facing the camera lift away (doll's-house cutaway); a clubhouse with a clock, flags and an LED video board; practice court, garden, marquee, entrance plaza. Original/fictional names and sponsors only. English UI.

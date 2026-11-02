@@ -142,22 +142,22 @@
     <div class="sec" id="sec-coach">
       <h2>Coach</h2>
       <div class="seg" id="tactic">
-        <button data-tac="auto" class="on" disabled>Auto</button>
-        <button data-tac="go" disabled>Go for it</button>
-        <button data-tac="safe" disabled>Safe</button>
-        <button data-tac="net" disabled>Rush net</button>
-        <button data-tac="drop" disabled>Drop</button>
-        <button data-tac="lob" disabled>Lob</button>
+        <button data-tac="auto" class="on">Auto</button>
+        <button data-tac="go">Go for it</button>
+        <button data-tac="safe">Safe</button>
+        <button data-tac="net">Rush net</button>
+        <button data-tac="drop">Drop</button>
+        <button data-tac="lob">Lob</button>
       </div>
       <div class="row"><label for="srvDir">Serve dir</label>
-        <select id="srvDir" class="wide" disabled>
+        <select id="srvDir" class="wide">
           <option value="auto" selected>Auto</option>
           <option value="wide">Wide</option><option value="body">Body</option>
           <option value="tee">T</option>
         </select></div>
       <div class="row">
-        <button id="btnAim" class="wide" disabled>Aim next shot (click court)</button>
-        <button id="btnChal" disabled>Challenge</button></div>
+        <button id="btnAim" class="wide">Aim next shot (click court)</button>
+        <button id="btnChal" disabled title="P6 later">Challenge</button></div>
     </div>
 
     <div class="sec" id="sec-cam">
@@ -173,6 +173,9 @@
       <div class="hint">Q / E turn · wheel zoom · drag orbit (vertical = tilt) · shift-drag pan</div>
     </div>
 
+    <div class="sec"><h2>Audio</h2><div class="row">
+      <button id="btnAudio" class="wide">Enable sound</button>
+      <span class="hint" id="audState">off</span></div></div>
     <div class="sec"><h2>Match centre</h2><div id="stats">No match yet.</div></div>
     <div class="sec"><h2>Commentary feed</h2><ul id="feed"></ul></div>
   </div>
@@ -2889,13 +2892,19 @@ HB.FLOW = (function () {
         var isReturn = (shots === 1);
         var shot = HB.RALLY.chooseShot(HP, { r: Math.random, side: 1, player: HP });
         var far = endSign(M, 1 - idx);
-        if (Math.random() < errP(HP, isReturn)) {
+        var tacM = (idx === 0 && coach.tactic === 'go') ? 1.35 :
+                   (idx === 0 && coach.tactic === 'safe') ? 0.7 : 1;
+        if (Math.random() < errP(HP, isReturn) * tacM) {
           shot.target = HB.RALLY.missGeom({ player: HP, r: Math.random },
             { target: shot.target }).target;
         } else {
           shot.target = { x: far * Math.abs(shot.target.x),
                           z: U.clamp(shot.target.z, -SX + 0.5, SX - 0.5) };
-          if (coach.aim && idx === (coach.side || 0)) shot.target = coach.aim;
+          tacticShot(idx, shot, far);                          // P6 coach intent
+          if (coach.aim && idx === (coach.side || 0)) {        // aim: consume once
+            shot.target = { x: coach.aim.x, z: coach.aim.z };
+            coach.aim = null;
+          }
         }
         // hit from wherever the rig is now (it pre-moved during the ball's flight);
         // WAITING for arrival let the ball bounce twice → every rally died at 1 shot
@@ -2947,11 +2956,46 @@ HB.FLOW = (function () {
     var risk = HP.tactic.risk / 100, cons = HP.cons / 100;
     return (isReturn ? 0.34 : 0.26) * (0.6 + risk * 0.8) * (1.25 - cons);
   }
+  function tacticShot(idx, shot, far) {                      // P6: coach intent shapes targets
+    if (idx !== 0 || coach.tactic === 'auto') return;
+    var t = coach.tactic;
+    if (t === 'go') shot.clearance = Math.max(0.15, shot.clearance * 0.55);
+    else if (t === 'safe') {
+      shot.clearance += 0.2;
+      shot.target.x = far * Math.min(Math.abs(shot.target.x), 8.0);
+    } else if (t === 'net') {
+      shot.target.x = far * (3.4 + Math.random() * 1.5);
+      shot.target.z *= 0.45; shot.clearance = 0.3;
+    } else if (t === 'drop') {
+      shot.target.x = far * (1.1 + Math.random() * 0.6);
+      shot.target.z *= 0.5; shot.clearance = 0.22;
+    } else if (t === 'lob') {
+      shot.target.x = far * (9.4 + Math.random() * 1.4);
+      shot.clearance = 2.1; shot.spin = { top: -320, side: 0 };
+    }
+  }
   function inSingles(l) {
     return Math.abs(l.x) <= HALF + 0.05 && Math.abs(l.z) <= SX + 0.05;
   }
 
   // ---------- point resolution → scoring → next chain ----------
+  // ---- P6 commentary: light match-colour lines into the feed (BUS-only) ----
+  function commentate(M, w, how2, sc) {
+    var who = M.players[w].meta.name.split(' ').pop();
+    var streak = (M.comment = M.comment || { streak: [0, 0], prevW: -1 });
+    streak.streak[w] = (streak.prevW === w) ? streak.streak[w] + 1 : 1;
+    streak.streak[1 - w] = 0;
+    streak.prevW = w;
+    var s = streak.streak[w];
+    if (how2 === 'ace' && M.stats.aces >= 3)
+      log('Commentary — ' + who + ' is finding the corners: ' + M.stats.aces + ' aces now.', 'big');
+    else if (s === 3)
+      log('Commentary — ' + who + ' has won three straight points; momentum shift.', '');
+    else if (sc.tbStart)
+      log('Commentary — level at ' + M.score.gamesNow[0] + '–' + M.score.gamesNow[1] + '. Tie-break tennis!', '');
+    else if (sc.gameOver && M.score.gamesNow[w] >= 4 && M.format !== 'short')
+      log('Commentary — ' + M.players[w].meta.name + ' closing in on the set.', '');
+  }
   function endPoint(M, winner, how, shots, serveWinner) {
     var isAce = serveWinner && shots <= 1;
     var how2 = isAce ? 'ace' : how;
@@ -2964,6 +3008,7 @@ HB.FLOW = (function () {
     var sc = scorePoint(M, winner);
     if (sc.matchOver) M.matchOver = true;
     if (sc.msg) { log(sc.msg, sc.matchOver ? 'big' : ''); HB.bus.emit('call:umpire', { text: sc.msg }); }
+    commentate(M, winner, how2, sc);
     HB.bus.emit('crowd:react', { level: sc.matchOver ? 1 : (isAce ? 0.7 : 0.25) });
     if (sc.setOver && !sc.matchOver) {
       M.ends = 1 - M.ends;
@@ -3055,6 +3100,21 @@ HB.FLOW = (function () {
   }
 
   var coach = { tactic: 'auto', srvDir: 'auto', aim: null, side: 0 };
+  HB.bus.on('coach:tactic', function (d) {                   // P6 UI → FLOW (BUS-only)
+    if (d.kind === 'serve') {
+      coach.srvDir = d.dir || 'auto';
+      log('Coach: serving ' + (d.dir === 'auto' ? 'auto' : d.dir) + '.', '');
+    } else {
+      coach.tactic = d.tactic || 'auto';
+      log('Coach: tactic → ' + coach.tactic + '.', 'big');
+      HB.bus.emit('audio:all', { kind: 'ui' });
+    }
+  });
+  HB.bus.on('coach:aim', function (d) {
+    if (!isFinite(d.x) || !isFinite(d.z)) return;
+    coach.aim = { x: d.x, z: d.z }; coach.side = 0;          // coach drives player 0
+    log('Coach: aim set (' + d.x.toFixed(1) + ', ' + d.z.toFixed(1) + ').', '');
+  });
   HB.bus.on('debug:runmatch', function (d) {                 // ?qa=match harness entry
     var metas = [HB.CFG.roster[0], HB.CFG.roster[1]];
     var M = newMatch(d.fmt || 'set', metas, d.surf);
@@ -3236,6 +3296,137 @@ HB.CROWD = (function () {
   HB.reg('crowd', api);
   return api;
 })();
+// ===== audio.js =====
+// audio.js — HB.AUDIO (P7): procedural WebAudio soundscape, OFF until user gesture,
+// enable toggle in panel (ARCH §15 / PLAN P7). BUS-only: audio:all + match events.
+// Synth bank: hit (filtered noise burst + pitch by kph), bounce (per-surface
+// thump), net buzz, umpire/line blip, crowd bed (looped noise swells) + cheers.
+HB.AUDIO = (function () {
+  var ok = false, ctx = null, master = null, bed = null, bedGain = null;
+
+  function mk() {                                   // lazy AudioContext (gesture-gated)
+    if (ctx) return ctx;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    ctx = new AC();
+    master = ctx.createGain();
+    master.gain.value = 0.6;
+    master.connect(ctx.destination);
+    return ctx;
+  }
+
+  // ---- one-shot helpers ----
+  function env(g, t0, a, peak, d) {                 // attack/decay envelope
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(peak, t0 + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + a + d);
+  }
+  function noiseBuf(dur) {
+    var n = Math.floor(ctx.sampleRate * dur), b = ctx.createBuffer(1, n, ctx.sampleRate);
+    var d = b.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  }
+  function burst(dur, freq, q, peak, a, d, type) {  // filtered noise burst
+    if (!ctx) return;
+    var t0 = ctx.currentTime;
+    var src = ctx.createBufferSource(); src.buffer = noiseBuf(dur);
+    var f = ctx.createBiquadFilter(); f.type = type || 'bandpass';
+    f.frequency.value = freq; f.Q.value = q;
+    var g = ctx.createGain();
+    env(g, t0, a, peak, d);
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(t0); src.stop(t0 + dur + 0.05);
+  }
+  function tone(freq, dur, peak, a, d, type) {      // simple oscillator blip
+    if (!ctx) return;
+    var t0 = ctx.currentTime;
+    var o = ctx.createOscillator(); o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t0);
+    var g = ctx.createGain();
+    env(g, t0, a, peak, d);
+    o.connect(g); g.connect(master);
+    o.start(t0); o.stop(t0 + dur);
+  }
+
+  // ---- sound bank ----
+  function sfx(kind, d) {
+    if (!ok || !ctx) return;
+    d = d || {};
+    if (kind === 'hit') {
+      // racket "pock": noise burst, brighter + louder with speed
+      var k = U.clamp((d.kph || 120) / 220, 0.4, 1.25);
+      burst(0.06, 950 + 700 * k, 2.2, 0.5 * k, 0.004, 0.11);
+      tone(210 + 90 * k, 0.1, 0.16 * k, 0.003, 0.09, 'triangle');
+    } else if (kind === 'bounce') {
+      var sf = HB.CFG.bounce[d.surface] || HB.CFG.bounce.hard;
+      var hue = sf.color;                            // surface-tinted thump
+      var f = { grass: 300, clay: 260, hard: 380, carpet: 420 }[d.surface] || 320;
+      burst(0.09, f, 1.4, 0.4 * (sf.roll || 1), 0.003, 0.09);
+      tone(f * 0.5, 0.12, 0.12, 0.002, 0.1, 'sine');
+    } else if (kind === 'call') {
+      tone(660, 0.14, 0.22, 0.005, 0.12, 'square');  // line-call blip
+      tone(440, 0.2, 0.14, 0.005, 0.16, 'sine');
+    } else if (kind === 'net') {
+      burst(0.18, 180, 0.8, 0.3, 0.002, 0.17, 'lowpass'); // net-cord buzz
+    } else if (kind === 'ui') {
+      tone(520, 0.07, 0.12, 0.002, 0.05, 'square');
+    } else if (kind === 'cheer') {
+      swell(U.clamp(d.level || 0.5, 0, 1), 1.6);
+    }
+  }
+
+  // ---- crowd bed: looped brown-ish noise, gain swells on reactions ----
+  function swell(level, dur) {
+    if (!ok || !ctx || !bedGain) return;
+    var t0 = ctx.currentTime;
+    bedGain.gain.cancelScheduledValues(t0);
+    bedGain.gain.setValueAtTime(bedGain.gain.value, t0);
+    bedGain.gain.linearRampToValueAtTime(0.03 + level * 0.14, t0 + 0.25);
+    bedGain.gain.setTargetAtTime(0.035, t0 + dur || 1.4, 0.9);
+  }
+  function buildBed() {
+    var n = ctx.sampleRate * 2, b = ctx.createBuffer(1, n, ctx.sampleRate);
+    var d = b.getChannelData(0), last = 0;
+    for (var i = 0; i < n; i++) {
+      last = (last + (Math.random() * 2 - 1) * 0.02);
+      last *= 0.995;
+      d[i] = last * 3;
+    }
+    bed = ctx.createBufferSource(); bed.buffer = b; bed.loop = true;
+    bedGain = ctx.createGain(); bedGain.gain.value = 0.035;
+    var f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500;
+    bed.connect(f); f.connect(bedGain); bedGain.connect(master);
+    bed.start();
+  }
+
+  // ---- wiring ----
+  HB.bus.on('audio:all', function (d) { sfx(d.kind, d); });
+  HB.bus.on('ball:bounce', function (dd) {
+    sfx('bounce', { surface: dd.surface });
+  });
+  HB.bus.on('ball:netcord', function () { sfx('net'); });
+  HB.bus.on('crowd:react', function (dd) { swell(dd.level || 0.3, 1.2); });
+  HB.bus.on('point:end', function (dd) {
+    if (dd.how === 'ace') sfx('cheer', { level: 0.65 });
+  });
+  HB.bus.on('match:end', function () { sfx('cheer', { level: 1 }); });
+
+  var U = HB.UTIL;
+  function enable() {                               // must be called from a user gesture
+    if (ok) return true;
+    if (!mk()) return false;
+    if (ctx.state === 'suspended') ctx.resume();
+    if (!bed) buildBed();
+    ok = true;
+    return true;
+  }
+  function enabled() { return ok; }
+
+  var api = { ready: true, enable: enable, enabled: enabled };
+  HB.reg('audio', api);
+  return api;
+})();
 // ===== ui.js =====
 // ui.js — HB.UI: panel wiring stub for P0 (slider live-RT, mode buttons, selects → BUS).
 // Scoreboard/feed/match-centre logic arrives in P5/P6; coach controls enable in P6.
@@ -3381,6 +3572,81 @@ HB.UI = (function () {
     });
     function curM() { return HB.FLOW.current(); }
 
+    // ---- P6: coach controls (tactic / serve dir / aim-click) ----
+    var tacWrap = $('tactic');
+    if (tacWrap) Array.prototype.forEach.call(tacWrap.querySelectorAll('button'),
+      function (b) {
+        b.addEventListener('click', function () {
+          Array.prototype.forEach.call(tacWrap.querySelectorAll('button'),
+            function (x) { x.classList.remove('on'); });
+          b.classList.add('on');
+          HB.bus.emit('coach:tactic', { kind: 'tactic', tactic: b.getAttribute('data-tac') });
+        });
+      });
+    HB.bus.on('coach:tactic', function (d) {                // reflect BUS-injected state (QA)
+      if (d.kind === 'serve') {
+        if (srvDir) srvDir.value = ({ auto: 'auto', w: 'wide', b: 'body', t: 'tee' })[d.dir] || 'auto';
+        return;
+      }
+      if (tacWrap) Array.prototype.forEach.call(tacWrap.querySelectorAll('button'),
+        function (x) { x.classList.toggle('on', x.getAttribute('data-tac') === d.tactic); });
+    });
+    var srvDir = $('srvDir');
+    if (srvDir) srvDir.addEventListener('change', function () {
+      var map = { auto: 'auto', wide: 'w', body: 'b', tee: 't' };
+      HB.bus.emit('coach:tactic', { kind: 'serve', dir: map[srvDir.value] || 'auto' });
+    });
+    var btnAim = $('btnAim'), aiming = false, downPt = null, aimRing = null;
+    function ring() {
+      if (aimRing) return aimRing;
+      var g = new THREE.RingGeometry(0.3, 0.44, 18); g.rotateX(-Math.PI / 2);
+      aimRing = new THREE.Mesh(g,
+        new THREE.MeshBasicMaterial({ color: 0x3ecfb2, transparent: true, opacity: 0.95 }));
+      aimRing.position.y = 0.02; aimRing.visible = false;
+      HB.CORE.scene.add(aimRing);
+      return aimRing;
+    }
+    function clearRing() { if (aimRing) aimRing.visible = false; }
+    if (btnAim) {
+      btnAim.addEventListener('click', function () {
+        aiming = !aiming;
+        btnAim.classList.toggle('on', aiming);
+        btnAim.textContent = aiming ? 'Click the court…' : 'Aim next shot (click court)';
+      });
+      var host = $('glhost');
+      host.addEventListener('pointerdown', function (e) { downPt = [e.clientX, e.clientY]; });
+      host.addEventListener('pointerup', function (e) {
+        if (!aiming || !downPt) return;
+        var moved = Math.hypot(e.clientX - downPt[0], e.clientY - downPt[1]);
+        downPt = null;
+        if (moved > 6) return;                               // was a drag-orbit
+        var r = host.getBoundingClientRect();
+        var ray = new THREE.Raycaster();
+        ray.setFromCamera(new THREE.Vector2(
+          ((e.clientX - r.left) / r.width) * 2 - 1,
+          -((e.clientY - r.top) / r.height) * 2 + 1), HB.CORE.camera.object());
+        var pt = new THREE.Vector3();
+        if (!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), pt)) return;
+        pt.x = Math.max(-11, Math.min(11, pt.x));
+        pt.z = Math.max(-5, Math.min(5, pt.z));
+        var rg = ring(); rg.position.x = pt.x; rg.position.z = pt.z; rg.visible = true;
+        HB.bus.emit('coach:aim', { x: pt.x, z: pt.z });
+      });
+    }
+    HB.bus.on('rally:hit', clearRing);
+    HB.bus.on('point:end', clearRing);
+
+    // ---- P7: audio toggle (gesture-gated) ----
+    var btnAudio = $('btnAudio'), audState = $('audState');
+    if (btnAudio) btnAudio.addEventListener('click', function () {
+      var good = HB.AUDIO.enable();
+      if (good) {
+        btnAudio.textContent = 'Sound on';
+        btnAudio.classList.add('on');
+        audState.textContent = 'on';
+        HB.AUDIO.api = null;
+      }
+    });
     HB.bus.emit('ui:ready', {});
   }
 

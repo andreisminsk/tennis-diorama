@@ -142,6 +142,91 @@ HB.UI = (function () {
     });
     function curM() { return HB.FLOW.current(); }
 
+    // ---- P6: coach controls (tactic / serve dir / aim-click) ----
+    var tacWrap = $('tactic');
+    if (tacWrap) Array.prototype.forEach.call(tacWrap.querySelectorAll('button'),
+      function (b) {
+        b.addEventListener('click', function () {
+          Array.prototype.forEach.call(tacWrap.querySelectorAll('button'),
+            function (x) { x.classList.remove('on'); });
+          b.classList.add('on');
+          HB.bus.emit('coach:tactic', { kind: 'tactic', tactic: b.getAttribute('data-tac') });
+        });
+      });
+    HB.bus.on('coach:tactic', function (d) {                // reflect BUS-injected state (QA)
+      if (d.kind === 'serve') {
+        if (srvDir) srvDir.value = ({ auto: 'auto', w: 'wide', b: 'body', t: 'tee' })[d.dir] || 'auto';
+        return;
+      }
+      if (tacWrap) Array.prototype.forEach.call(tacWrap.querySelectorAll('button'),
+        function (x) { x.classList.toggle('on', x.getAttribute('data-tac') === d.tactic); });
+    });
+    var srvDir = $('srvDir');
+    if (srvDir) srvDir.addEventListener('change', function () {
+      var map = { auto: 'auto', wide: 'w', body: 'b', tee: 't' };
+      HB.bus.emit('coach:tactic', { kind: 'serve', dir: map[srvDir.value] || 'auto' });
+    });
+    var btnAim = $('btnAim'), aiming = false, downPt = null, aimRing = null;
+    function ring() {
+      if (aimRing) return aimRing;
+      var g = new THREE.RingGeometry(0.3, 0.44, 18); g.rotateX(-Math.PI / 2);
+      aimRing = new THREE.Mesh(g,
+        new THREE.MeshBasicMaterial({ color: 0x3ecfb2, transparent: true, opacity: 0.95 }));
+      aimRing.position.y = 0.02; aimRing.visible = false;
+      HB.CORE.scene.add(aimRing);
+      return aimRing;
+    }
+    function clearRing() { if (aimRing) aimRing.visible = false; }
+    if (btnAim) {
+      btnAim.addEventListener('click', function () {
+        aiming = !aiming;
+        btnAim.classList.toggle('on', aiming);
+        btnAim.textContent = aiming ? 'Click the court…' : 'Aim next shot (click court)';
+      });
+      var host = $('glhost');
+      host.addEventListener('pointerdown', function (e) { downPt = [e.clientX, e.clientY]; });
+      host.addEventListener('pointerup', function (e) {
+        if (!aiming || !downPt) return;
+        var moved = Math.hypot(e.clientX - downPt[0], e.clientY - downPt[1]);
+        downPt = null;
+        if (moved > 6) return;                               // was a drag-orbit
+        var r = host.getBoundingClientRect();
+        var ray = new THREE.Raycaster();
+        ray.setFromCamera(new THREE.Vector2(
+          ((e.clientX - r.left) / r.width) * 2 - 1,
+          -((e.clientY - r.top) / r.height) * 2 + 1), HB.CORE.camera.object());
+        var pt = new THREE.Vector3();
+        if (!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), pt)) return;
+        pt.x = Math.max(-11, Math.min(11, pt.x));
+        pt.z = Math.max(-5, Math.min(5, pt.z));
+        var rg = ring(); rg.position.x = pt.x; rg.position.z = pt.z; rg.visible = true;
+        HB.bus.emit('coach:aim', { x: pt.x, z: pt.z });
+      });
+    }
+    HB.bus.on('rally:hit', clearRing);
+    HB.bus.on('point:end', clearRing);
+
+    // ---- P8: skip-ceremony + auto-next ----
+    var skipCer = $('skipCer'), autoNext = $('autoNext');
+    if (skipCer) skipCer.addEventListener('change', function () {
+      HB.bus.emit('ui:flags', { skipCeremony: skipCer.checked });
+      HB.bus.emit('ui:log', { t: skipCer.checked ? 'Ceremony will be skipped.' : 'Ceremony on.' });
+    });
+    if (autoNext) autoNext.addEventListener('change', function () {
+      HB.bus.emit('ui:flags', { autoNext: autoNext.checked });
+      HB.bus.emit('ui:log', { t: autoNext.checked ? 'Auto-next on.' : 'Auto-next off.' });
+    });
+    // ---- P7: audio toggle (gesture-gated) ----
+    var btnAudio = $('btnAudio'), audState = $('audState');
+    if (btnAudio) btnAudio.addEventListener('click', function () {
+      var good = HB.AUDIO.enable();
+      if (good) {
+        btnAudio.textContent = 'Sound on';
+        btnAudio.classList.add('on');
+        audState.textContent = 'on';
+        HB.AUDIO.api = null;
+      }
+    });
     HB.bus.emit('ui:ready', {});
   }
 

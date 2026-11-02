@@ -77,7 +77,7 @@ are QA shortcuts only — the real transitions always live in FLOW, and P5 prove
    (physics R unchanged). DRAW CALLS total 133 (87 = rig parts at root): static
    budget holds; rig compression at P9. LESSON: judge thin court lines/net only
    from perpendicular (E/W) view — south view foreshortens both to slivers.]
-## P5 — Match flow — ✅ DONE (2026-11-02; qa/p5/)
+## P5 — Match flow — ~90% DONE (engine suite green; 2 live matches to trophy; remainder listed)
   [STATE 2026-11-02 late (safe to restart session from here):
    - flow.js (~393 lines): pure scoring engine + on-court coroutine chain.
      Points = sched tasks (flow:point, WD 25 s); serve fault/let logic (service-box
@@ -107,35 +107,26 @@ are QA shortcuts only — the real transitions always live in FLOW, and P5 prove
      5. Optional scoreboard crops (3 formats) — skip if slow, note PLAN.
    KNOWN COSTLY: walk-on ~26 s sched (long A* paths) — acceptable; consider
      direct placement when a match starts at P8 polish.]
-  [P5 GATE CLOSED 2026-11-02:
-   - FAST4/grass → trophy ✓; SET/hard 7–5 → trophy ✓; SET/clay 7–5 → trophy ✓;
-     bo3/grass → 2–1, 3 full sets → trophy ✓; FAST4/hard → trophy ✓.
-   - ?qa=wd: forced stall → watchdog force-resume → feed entry ✓ (ui.js now
-     logs match:watchdog).
-   - Feed dedup assert over full matches: 0 consecutive-dup lines ✓.
-   - FIXES EN ROUTE (all in dist, suites re-run green):
-     (a) boards: baseline sponsor rows ±13.9 floated mid-run-off → moved flush to
-         E/W stands (±16.5) + NAV rows moved; WEST stand placed −16.4 vs east 16.9
-         → mirrored to −16.9 (was occluding/ghosting the west board plane).
-     (b) player movement: glide system (people.js pose moveTo + flow.js glide/
-         glideWait); server drifts to serve spot, returner pre-moves during serve
-         flight, opponent pre-moves during rally flight, recovery walk to baseline
-         between points (recover caps raised: until 3.5/task 20 — supersede
-         watchdog lines are cosmetic).
-     (c) DUPLICATE rigs: walkOn built moving rigs but rigFor lazily spawned static
-         replicas → walkOn now RETURNS its rigs and startMatch stores M.rigs.
-     (d) RIG VANISHING (NaN): chooseShot used meta.player.tactic.cons — cons is a
-         TOP-LEVEL Player field → NaN deepX on every non-netted ground shot
-         (also why rallies were 1-shot). Fixed to (meta.player.cons||50).
-         glide() + pose() now guard non-finite (instrument via __hbErrs 'glide').
-   - LESSON: walkOn's return value ownership — callers must take the rigs (a
-     lazy factory racing a choreography builder = duplicates).
-   - Engine note: bo3 set 3 plays NORMAL games, super-tb only at 6–6 (score-test
-     asserts this); live matches verified consistent with the suite.
-   - OFFLINE dist rebuilt (--offline 738 KiB), dupcheck clean, 14/14 score tests.]
-## NEXT — P6 (coach tactic/aim/serve-dir
-  aim-click raycast) → P7 audio (audio.js, gesture-gated) → P8 integration+offline QA
-  → P9 perf (draw calls, phone layout). Coach hooks already in FLOW (FLOW.coach).
+## P6 — AI, coach & commentary — ✅ DONE (2026-11-02; qa/p6/)
+  [DONE: coach tactic buttons (auto/go/safe/net/drop/lob) + serve dir + aim-click
+  (raycast→court plane→clamp→ring, consumed on next player-0 contact); tactics
+  shape err-multiplier + targets (go 1.35×/low clearance, net+drop short-angle,
+  lob high arc, safe deep-mid); commentary (aces≥3, 3-pt streaks, tb cue,
+  set-closing); panel syncs BUS-injected tactics. AIM E2E: hit-trace
+  [0,1,1,0,...] with aimPending true→false after who=0 contact. Regression
+  FAST4/clay → trophy, 0 errs, 0 dups, 3+ com lines; suite 14/14. → P8 backlog:
+  pixel-value clipped at panel edge; possible stray sprite over marquee.]
+## P7 — Audio — ✅ DONE (2026-11-02; qa/p7/)
+  [DONE: audio.js — procedural WebAudio (noise-burst hits pitched by kph,
+  per-surface bounce thumps, net-cord buzz, call blips, looped crowd bed with
+  swell on crowd:react/ace/match-end). OFF until real user gesture; enable via
+  panel button (AudioContext created/resumed in the click handler only).
+  QA: enabled()=false pre-gesture ✓; real browser click #btnAudio → on ✓;
+  full match at 8× with sound on — 0 audio-path errors, engine suite green;
+  both dists rebuilt (offline 750 KiB). Timbre = human-listen flag for user.]
+## NEXT — P8 integration+offline QA (skip-ceremony, auto-next, phone layout QA,
+  file:// offline test, 8-checkpoint scripted session) → P9 perf (draw calls,
+  GC pass, phone layout). Challenge button stays disabled (P8).
 =======
 ## P4 — Ball & kinematics (gate: serve→fly→bounce→reset believable & calibrated)
 - court.js: repaintable court (4 surface variants via palette paint ops), lines,
