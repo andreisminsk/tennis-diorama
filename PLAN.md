@@ -29,9 +29,53 @@ are QA shortcuts only — the real transitions always live in FLOW, and P5 prove
 ## P1 — Court kit — ✅ DONE (gates passed; qa/p1/)
 ## P3 — People rig & actors — ✅ DONE (qa/p3/)
 ## P3b — Crowd & fx — ✅ DONE (qa/p3b/)
+##    [crowd fix round 2 (user screenshot): crowd blobs now overlap slim dark SEAT
+##    PADS (0.46×0.16×0.42 #39424e structure) — no more 'heads floating over seats';
+##    seat→crowd y=stepH·rr+stepH+0.35; updateMatrixWorld BEFORE seat compute
+##    (was after → ghost rows over court, caught via qa/p3/tribune.png).]
 ## P3-PERSONS (default state): island inhabited at boot — officials + 2 players idle
 ##    at baselines (±13.0, ±0.6 rotated coords), ambient stroll, crowd in stands.
 ##    (Boot auto-spawn added after user QA: figures were invisible without QA hook.)
+## P4 — Ball & kinematics — IN PROGRESS (P4a nearly done; P4b harness runs but simPoint bug)
+  [STATE 2026-11-02 14:00, mid-debug:
+   DONE+VERIFIED:
+   - kin.js v2: bisection-on-speed solver w/ FIXED vy profile (makeVFactory), Magnus
+     sigma=0.000457 (Saviano fit; the 0.000568/m version gave 10g dip at 2400rpm —
+     wrong), spin conv via HB.KIN.syncW({top,side},dirX) — rpm ×0.105 rad/s,
+     topspin NEGATIVE about Z for +x travel (dips), sidespin about Y (curls).
+     Shots land within 0.1–0.3 m of target: flat 127, top 136 (net 2.36),
+     slice+curl 136 (0.5 m drift), serve-from-2.8m 110–116 kph T≈1.0 s. 200 random
+     shots: 0 NaN, 0 cap-breaks.
+   - ball.js: substep 1/120, drag+Magnus with SAME σ (keep both consts in sync!),
+     net cord clip (±0.11 band → deflected 2.2 vy), into-net deadening, bounce
+     restitution+skid per CFG.bounce, spin-decay, marks→COURT.mark (skid vs dot),
+     ball:bounce{surface,vy,loc} on BUS. Sim-vs-kin: bounce (11.0,3.4)==kin ✓.
+     Accepts spin {top,side} OR pre-synced w Vector3 (isVector3 check — REQUIRED,
+     passing a vector as spin silently zeroes it).
+   - boot.js: BALL.build + BALL.step(dt·speed) in render loop wired. Players idle
+     at (±13.0, ±0.6); officials placed (ump chair (0,7.6) etc.).
+   KNOWN BUG (P4b, rally.js simPoint v3 — the current file):
+   - Serve loop logic inverted: attempt===1 forces bad=0 → 2nd serve always in →
+     dfPct=0, firstServePct=100 (stats count 2nd serves as firstIn). Ace roll
+     (~5%) somehow never counts (acePct 0) — verify reachability. Rally cap 40 →
+     meanRally 40; my error prob 0.155-based should give ~8–13 — recheck rng
+     consumption order (chooseShot draws then contactErr on SAME meta.r may
+     correlate; use fresh draws per roll).
+   - calibrate(n) runs 4 pairings × n/4 pts per surface; output struct {points,
+     firstServePct, acePct, dfPct, meanRally} ✓; targets 60–65 / 4–8 / 2–4 /
+     4–7 (clay +, grass/carpet −).
+   - SURFACE effect currently only via surfaceRallyAdj multiplier — extend to
+     serve speed? (carpet/grass mix) — P4b tuning.
+   LESSONS (both hit twice — do not repeat):
+   - build.py RACE: when a round has WRITE/EDIT + RUN build together, the build
+     can exec BEFORE the write lands → dist goes stale while output says "built".
+     ALWAYS rebuild + grep a new-code marker (grep -c 'marker' dist/...) before
+     browser QA.
+   - BROWSER CACHE: navigating ?v=N still served stale HTML twice (server 304s).
+     After any rebuild: either restart http.server, or verify in-page probe
+     typeof HB.KIN.step === 'undefined' etc. before trusting test results.
+   - Loop-guard: compound browser evaluate blocks (2+ actions per message) get
+     silently dropped after warnings — keep ONE browser action per message.]
 ## P4 — Ball & kinematics (gate: serve→fly→bounce→reset believable & calibrated)
 - court.js: repaintable court (4 surface variants via palette paint ops), lines,
   net (posts/cable/band), fictional sponsor boards, mark fade layer, NAV apron cells.

@@ -29,9 +29,13 @@ HB.BALL = (function () {
 
   function launch(d) {
     st.inPlay = true;
-    st.p.copy(d.p); st.v.copy(d.v0); st.w.copy(d.w || ZERO);
+    st.p.copy(d.p); st.v.copy(d.v0);
+    // accept spin {top,side} OR a pre-synced world-axis w Vector3
+    if (d.w && d.w.isVector3) st.w.copy(d.w);
+    else st.w.copy(HB.KIN.syncW(d.spin || { top: 0, side: 0 }, d.v0.x || 1));
     st.netHit = null; st.bounces = 0;
-    mesh.visible = true;
+    st.tStart = Date.now();
+    mesh.visible = true; shadow.visible = true;
   }
   var ZERO = new THREE.Vector3();
 
@@ -49,9 +53,11 @@ HB.BALL = (function () {
     var v = st.v, p = st.p;
     var sp = v.length();
     var kdrag = 0.5 * 1.225 * 0.55 * Math.PI * R * R / 0.057;
-    v.x += (-kdrag * sp * v.x + 0.000568 / 0.057 * (st.w.y * v.z - st.w.z * v.y)) * dt;
-    v.y += (-G - kdrag * sp * v.y + 0.000568 / 0.057 * (st.w.z * v.x - st.w.x * v.z)) * dt;
-    v.z += (-kdrag * sp * v.z + 0.000568 / 0.057 * (st.w.x * v.y - st.w.y * v.x)) * dt;
+    var KM = 0.000457;   // same sigma as kin.js (shared convention)
+    var wx = st.w.x, wy = st.w.y, wz = st.w.z;
+    v.x += (-kdrag * sp * v.x + KM * (wy * v.z - wz * v.y)) * dt;
+    v.y += (-G - kdrag * sp * v.y + KM * (wz * v.x - wx * v.z)) * dt;
+    v.z += (-kdrag * sp * v.z + KM * (wx * v.y - wy * v.x)) * dt;
     p.addScaledVector(v, dt);
     // net plane
     var ZN = netZ();

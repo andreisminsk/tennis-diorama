@@ -22,8 +22,8 @@ HB.CLUB = (function () {
     steps.push({ g: new THREE.BoxGeometry(len, 1.05, 0.3), m: tx(0, 0.5, -0.15),
       color: '#5e564d' });
     grp.add(new THREE.Mesh(U.mergeGeoms(steps), vcMat()));
-    var seatG = new THREE.BoxGeometry(0.44, 0.5, 0.44);
-    var seatM = new THREE.MeshLambertMaterial({ color: '#ffffff', transparent: true });
+    var seatG = new THREE.BoxGeometry(0.46, 0.16, 0.42);   // slim seat pads (structure)
+    var seatM = new THREE.MeshLambertMaterial({ color: '#39424e', transparent: true });
     var n = rows * cols, im = new THREE.InstancedMesh(seatG, seatM, n);
     im.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     var ACC = ['#c8102e', '#f2f2f2', '#1e3a8a', '#f7c531', '#3ecfb2', '#f28cb1', '#64748b'];

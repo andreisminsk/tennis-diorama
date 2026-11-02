@@ -25,7 +25,8 @@ HB.CROWD = (function () {
                '#64748b', '#e2591f', '#00a3c8', '#28c76f'];
     var total = 0;
     stands.forEach(function (s) { total += s.__seats.count; });
-    var crowdGeo = new THREE.BoxGeometry(0.3, 0.55, 0.26);   // shoulders+head torso blob
+    // person = torso+head-ish blob (0.55 tall), sunk 0.12 into the seat pad
+    var crowdGeo = new THREE.BoxGeometry(0.34, 0.62, 0.3);
     var crowdMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
     im = new THREE.InstancedMesh(crowdGeo, crowdMat, total);
     im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -39,7 +40,7 @@ HB.CROWD = (function () {
       for (var rr = 0; rr < rows; rr++)
         for (var cc = 0; cc < cols; cc++) {
           var lx = -len / 2 + pitch * (cc + 0.5);
-          var ly = stepH * rr + stepH + 0.25 + 0.30;  // on the seat: seat top + torso half
+          var ly = stepH * rr + stepH + 0.35;      // pad top +0.31 centre − 0.12 sink
           var lz = rr * stepD + stepD / 2;
           var p = new THREE.Vector3(lx, ly, lz).applyMatrix4(s.matrixWorld);
           // skip ~8% of seats (empty seats read realistic)
