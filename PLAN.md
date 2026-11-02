@@ -27,7 +27,12 @@ are QA shortcuts only — the real transitions always live in FLOW, and P5 prove
   ortho iso 31° framing correct. Pixel-size slider changes RT resolution live.
 
 ## P1 — Court kit — ✅ DONE (gates passed; qa/p1/)
-## P3 — People rig & actors (gate: humanoids animate; officials placed)
+## P3 — People rig & actors — ✅ DONE (qa/p3/)
+## P3b — Crowd & fx — ✅ DONE (qa/p3b/)
+## P3-PERSONS (default state): island inhabited at boot — officials + 2 players idle
+##    at baselines (±13.0, ±0.6 rotated coords), ambient stroll, crowd in stands.
+##    (Boot auto-spawn added after user QA: figures were invisible without QA hook.)
+## P4 — Ball & kinematics (gate: serve→fly→bounce→reset believable & calibrated)
 - court.js: repaintable court (4 surface variants via palette paint ops), lines,
   net (posts/cable/band), fictional sponsor boards, mark fade layer, NAV apron cells.
 - QA-P1: 4 screenshots via Q/E quarter turns (driven by `HB.CORE.camera.turn(dir)`):
@@ -69,11 +74,15 @@ are QA shortcuts only — the real transitions always live in FLOW, and P5 prove
   walk-on choreography generator on sched.
 - Court-local player coords follow the ROTATED convention (CONTRACT §4):
   server stands near x=−11.885+3, serve crosses net plane x=0.
-- QA-P3: close-view screenshot (proportions, kit colours vs roster); walk-on
-  mid-walk screenshot via `HB.DEBUG.spawn('walkon')`; A* smoke test: navigate
-  umpire chair → plaza, assert path length > 10 cells (console eval).
-- QA-P3b (crowd/fx): crowd.js instanced seats+crowd, sway/applause/confetti.
-  QA: club+close screenshots at pixel size 3; confetti spawn screenshot.
+- QA-P3: [DONE] close-view kit colours verified; walk-on mid-stride verified;
+  A* smoke = ump→plaza 9 / judge→garden 5 / practice→plaza 4 cells (all actor
+  cells NAV-free — required nav rect fixes: rotated stand footprints, plaza
+  moved behind 4-row south stand, line judges to apron lane z ±7.2/−7.9).
+- QA-P3b: [DONE] 240 crowd instanced, sway+applause+confetti with respawn while
+  excited; confetti size 0.16 (outline pass swallowed 1px pieces — fixed).
+  [FIXES en route: walkOn per-job seg tracking; pose() wired to render loop;
+  officials off the blocked slab edge; duplicate disc() in nav removed.
+  DRAW CALLS: ~57 static (budget 60, compress in P9); confetti colour boost.]
 
 ## P4 — Ball & kinematics (gate: serve→fly→bounce→reset believable & calibrated)
 - kin.js v0 solver (target+clearance+spin, drag-aware iterative) + ball.js

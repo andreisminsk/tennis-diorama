@@ -33,6 +33,7 @@ HB.CORE.boot = (function () {
     [HB.COURT, HB.GROUNDS, HB.CLUB].forEach(function (m) {
       if (m && m.ready && m.build) m.build(scene);
     });
+    if (HB.CROWD && HB.CROWD.ready) HB.CROWD.build(scene);
     var ps = HB.DEBUG.params.surface;              // forced state (QA shortcut)
     if (ps && HB.CFG.bounce[ps]) {
       HB.CFG.current.surface = ps;

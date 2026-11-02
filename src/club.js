@@ -14,6 +14,7 @@ HB.CLUB = (function () {
   // ---- one grandstand: merged steps + instanced seats, tag for cutaway ----
   function stand(len, rows, cols) {
     var grp = new THREE.Group();
+    grp.__crowdCfg = { len: len, rows: rows, cols: cols };
     var steps = [], stepH = 0.52, stepD = 0.92;
     for (var r = 0; r < rows; r++)
       steps.push({ g: new THREE.BoxGeometry(len, stepH, stepD),
